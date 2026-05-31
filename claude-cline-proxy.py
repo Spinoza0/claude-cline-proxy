@@ -645,7 +645,7 @@ async def main():
     site = web.TCPSite(runner, "127.0.0.1", port)
     await site.start()
 
-    port_file = Path("/tmp/claude-proxy-port.txt")
+    port_file = Path(os.environ.get("CLAUDE_PROXY_PORT_FILE", "/tmp/claude-proxy-port.txt"))
     port_file.write_text(str(port))
     port_file.touch()
 
@@ -669,7 +669,7 @@ async def main():
     finally:
         logger.info("Shutting down...")
         await runner.cleanup()
-        port_file = Path("/tmp/claude-proxy-port.txt")
+        port_file = Path(os.environ.get("CLAUDE_PROXY_PORT_FILE", "/tmp/claude-proxy-port.txt"))
         if port_file.exists():
             port_file.unlink()
         logger.info("Proxy stopped")

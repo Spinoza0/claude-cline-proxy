@@ -59,6 +59,7 @@ fi
 PYTHON="python3"
 
 echo "Starting Cline proxy..."
+export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
 if [ -n "$CLAUDE_PROXY_LOG" ]; then
     LOG_FILE="/tmp/claude-proxy.log"
     $PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
