@@ -41,6 +41,17 @@
 - Streaming (SSE → Anthropic format) supported
 - Tool calls and multi-turn work
 
+## Updating the Homebrew Formula
+
+When a new version of claude-cline-proxy is released:
+
+1. Update the tag: `git tag -d v1.0.0 && git push origin --delete v1.0.0`, then `git tag v1.0.0 && git push origin v1.0.0`
+2. Update `homebrew-tap` formula: change the `url` tag and `sha256` checksum
+3. The SHA256 of the main tarball can be computed via: `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.0.0.tar.gz" | shasum -a 256`
+4. For aiohttp updates, update the resource URL and SHA from PyPI: `curl -sL "https://pypi.org/pypi/aiohttp/<version>/json" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(u['url'], u['digests']['sha256']) for u in d['urls'] if u['packagetype']=='sdist']"`
+5. Push to `github.com/Spinoza0/homebrew-tap` (the tap repo)
+6. Users update via: `brew upgrade spinoza0/tap/claude-cline-proxy`
+
 ## If Tokens Expire
 1. `cline auth` — opens browser for OAuth (Google/GitHub)
 2. Or re-authenticate in Cline IDE extension

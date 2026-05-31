@@ -11,6 +11,15 @@ DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
 PORT_FILE="/tmp/claude-proxy-port.txt"
 PROXY_PID=""
 
+# Check Cline is installed
+if [ ! -d "$HOME/.cline" ]; then
+    echo "Error: Cline is not installed." >&2
+    echo "" >&2
+    echo "Cline is required for this tool to work." >&2
+    echo "Download it from: https://cline.bot" >&2
+    exit 1
+fi
+
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-XXXXXX.json)
 
 cleanup() {

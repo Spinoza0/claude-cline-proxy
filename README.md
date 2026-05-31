@@ -23,7 +23,7 @@ The proxy:
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude` in PATH)
 - [Python 3](https://www.python.org/) with `aiohttp`
-- Cline account with an active provider configured (any model)
+- [Cline](https://cline.bot) installed with an active provider configured (any model)
 
 ## Setup
 
