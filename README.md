@@ -82,6 +82,13 @@ The proxy automatically refreshes expired tokens by calling `POST api.cline.bot/
 cline auth
 ```
 
+## WebSearch Limitation
+
+Claude Code's built-in `WebSearch` tool will **not work** through this proxy — it is an Anthropic-only feature that requires a direct connection to the Anthropic API. If you need internet search capabilities, you have two options:
+
+1. **Tavily via Cline (automatic)** — configure Tavily as an MCP server in your Cline settings. The launcher (`run_claude.sh`) will automatically detect it and merge the configuration.
+2. **Any other search MCP** — add your preferred web search tool (e.g. Brave Search, Exa) as an MCP server in `mcp.json`.
+
 ## Files
 
 | File | Purpose |
