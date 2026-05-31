@@ -27,6 +27,14 @@ The proxy:
 
 ## Setup
 
+### Homebrew (recommended)
+
+```bash
+brew install Spinoza0/tap/claude-cline-proxy
+```
+
+### Manual
+
 ```bash
 # install python dependency
 pip install aiohttp
@@ -34,16 +42,18 @@ pip install aiohttp
 # make the launcher executable
 chmod +x claude-cline.sh
 
-# (optional) symlink to PATH
-ln -s "$PWD/claude-cline.sh" /opt/homebrew/bin/claude-cline
+# run directly from the project directory
+./claude-cline.sh <your prompt>
 ```
 
 ## Usage
 
 ```bash
-./claude-cline.sh <your prompt>
-# or (if symlinked)
+# if installed via Homebrew
 claude-cline <your prompt>
+
+# or run directly from the project directory
+./claude-cline.sh <your prompt>
 
 # all claude arguments are passed through transparently:
 claude-cline --print "explain how streams work in Python"

@@ -27,12 +27,18 @@ trap cleanup SIGINT SIGTERM EXIT
 
 rm -f "$PORT_FILE"
 
+# Locate proxy script: next to script (dev) or in Homebrew libexec (installed)
+PROXY_SCRIPT="$DIR/claude-cline-proxy.py"
+if [ ! -f "$PROXY_SCRIPT" ]; then
+    PROXY_SCRIPT="$DIR/../libexec/claude-cline-proxy.py"
+fi
+
 echo "Starting Cline proxy..."
 if [ -n "$CLAUDE_PROXY_LOG" ]; then
     LOG_FILE="/tmp/claude-proxy.log"
-    python3 "$DIR/claude-cline-proxy.py" > "$LOG_FILE" 2>&1 &
+    python3 "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
 else
-    python3 "$DIR/claude-cline-proxy.py" > /dev/null 2>&1 &
+    python3 "$PROXY_SCRIPT" > /dev/null 2>&1 &
 fi
 PROXY_PID=$!
 
@@ -68,12 +74,19 @@ try:
 except: pass
 " 2>/dev/null)
 
+# Resolve MCP config path: next to script (dev) or Homebrew etc (installed)
+MCP_SOURCE="$DIR/claude-cline-mcp.json"
+if [ ! -f "$MCP_SOURCE" ]; then
+    MCP_SOURCE="$DIR/../etc/claude-cline-mcp.json"
+fi
+
 python3 -c "
 import json, os
 
-# start from local claude-cline-mcp.json (user additions)
+mcp_source = os.environ.get('CLAUDE_CLINE_MCP', '$MCP_SOURCE')
+
 try:
-    with open('$DIR/claude-cline-mcp.json') as f:
+    with open(mcp_source) as f:
         mcp = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     mcp = {'mcpServers': {}}
