@@ -20,6 +20,12 @@ if [ ! -d "$HOME/.cline" ]; then
     exit 1
 fi
 
+# Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
+BREW_PREFIX=""
+if [[ "$DIR" == */Cellar/*/bin ]]; then
+    BREW_PREFIX="$(cd "$DIR/../.." && pwd)"
+fi
+
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-XXXXXX.json)
 
 cleanup() {
@@ -40,10 +46,12 @@ rm -f "$PORT_FILE"
 
 # Locate proxy script: next to script (dev) or in Homebrew libexec (installed)
 PROXY_SCRIPT="$DIR/claude-cline-proxy.py"
-BREW_PREFIX=""
-if [ ! -f "$PROXY_SCRIPT" ]; then
+if [ -z "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$DIR/../libexec/claude-cline-proxy.py"
     BREW_PREFIX="$DIR/.."
+fi
+if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
+    PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
 fi
 
 # Use Homebrew venv python if available, otherwise system python3
@@ -95,8 +103,11 @@ except: pass
 
 # Resolve MCP config path: next to script (dev) or Homebrew etc (installed)
 MCP_SOURCE="$DIR/claude-cline-mcp.json"
-if [ ! -f "$MCP_SOURCE" ]; then
+if [ -z "$BREW_PREFIX" ] && [ ! -f "$MCP_SOURCE" ]; then
     MCP_SOURCE="$DIR/../etc/claude-cline-mcp.json"
+fi
+if [ -n "$BREW_PREFIX" ] && [ ! -f "$MCP_SOURCE" ]; then
+    MCP_SOURCE="$BREW_PREFIX/etc/claude-cline-mcp.json"
 fi
 
 $PYTHON -c "
