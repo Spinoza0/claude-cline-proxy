@@ -29,16 +29,24 @@ rm -f "$PORT_FILE"
 
 # Locate proxy script: next to script (dev) or in Homebrew libexec (installed)
 PROXY_SCRIPT="$DIR/claude-cline-proxy.py"
+BREW_PREFIX=""
 if [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$DIR/../libexec/claude-cline-proxy.py"
+    BREW_PREFIX="$DIR/.."
+fi
+
+# Use Homebrew venv python if available, otherwise system python3
+PYTHON="python3"
+if [ -n "$BREW_PREFIX" ] && [ -f "$BREW_PREFIX/libexec/venv/bin/python3" ]; then
+    PYTHON="$BREW_PREFIX/libexec/venv/bin/python3"
 fi
 
 echo "Starting Cline proxy..."
 if [ -n "$CLAUDE_PROXY_LOG" ]; then
     LOG_FILE="/tmp/claude-proxy.log"
-    python3 "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
+    $PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
 else
-    python3 "$PROXY_SCRIPT" > /dev/null 2>&1 &
+    $PYTHON "$PROXY_SCRIPT" > /dev/null 2>&1 &
 fi
 PROXY_PID=$!
 
@@ -65,7 +73,7 @@ fi
 echo "Proxy running on port $PORT (pid $PROXY_PID)"
 
 # read model from Cline config
-CLINE_MODEL=$(python3 -c "
+CLINE_MODEL=$($PYTHON -c "
 import json, os
 try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
@@ -80,7 +88,7 @@ if [ ! -f "$MCP_SOURCE" ]; then
     MCP_SOURCE="$DIR/../etc/claude-cline-mcp.json"
 fi
 
-python3 -c "
+$PYTHON -c "
 import json, os
 
 mcp_source = os.environ.get('CLAUDE_CLINE_MCP', '$MCP_SOURCE')
