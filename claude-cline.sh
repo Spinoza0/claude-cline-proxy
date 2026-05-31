@@ -30,9 +30,9 @@ rm -f "$PORT_FILE"
 echo "Starting Cline proxy..."
 if [ -n "$CLAUDE_PROXY_LOG" ]; then
     LOG_FILE="/tmp/claude-proxy.log"
-    python3 "$DIR/proxy.py" > "$LOG_FILE" 2>&1 &
+    python3 "$DIR/claude-cline-proxy.py" > "$LOG_FILE" 2>&1 &
 else
-    python3 "$DIR/proxy.py" > /dev/null 2>&1 &
+    python3 "$DIR/claude-cline-proxy.py" > /dev/null 2>&1 &
 fi
 PROXY_PID=$!
 
@@ -71,9 +71,9 @@ except: pass
 python3 -c "
 import json, os
 
-# start from local mcp.json (user additions)
+# start from local claude-cline-mcp.json (user additions)
 try:
-    with open('$DIR/mcp.json') as f:
+    with open('$DIR/claude-cline-mcp.json') as f:
         mcp = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     mcp = {'mcpServers': {}}

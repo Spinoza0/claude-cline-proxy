@@ -7,7 +7,7 @@ Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) using any mode
 ## How it works
 
 ```
-claude CLI → proxy.py → api.cline.bot (DeepSeek, Anthropic, etc.)
+claude CLI → claude-cline-proxy.py → api.cline.bot (DeepSeek, Anthropic, etc.)
      ↑
   reads model/tokens from ~/.cline/data/
 ```
@@ -32,34 +32,34 @@ The proxy:
 pip install aiohttp
 
 # make the launcher executable
-chmod +x run_claude.sh
+chmod +x claude-cline.sh
 
 # (optional) symlink to PATH
-ln -s "$PWD/run_claude.sh" /opt/homebrew/bin/run_claude
+ln -s "$PWD/claude-cline.sh" /opt/homebrew/bin/claude-cline
 ```
 
 ## Usage
 
 ```bash
-./run_claude.sh <your prompt>
-# or
-run_claude <your prompt>
+./claude-cline.sh <your prompt>
+# or (if symlinked)
+claude-cline <your prompt>
 
 # all claude arguments are passed through transparently:
-run_claude --print "explain how streams work in Python"
-run_claude -p "design a database schema for a blog"   # plan mode
+claude-cline --print "explain how streams work in Python"
+claude-cline -p "design a database schema for a blog"   # plan mode
 ```
 
 Proxy logs are silenced by default. To enable debug logging:
 
 ```bash
-CLAUDE_PROXY_LOG=1 run_claude <your prompt>
+CLAUDE_PROXY_LOG=1 claude-cline <your prompt>
 # logs written to /tmp/claude-proxy.log
 ```
 
 The script:
 
-1. Starts `proxy.py` in the background
+1. Starts `claude-cline-proxy.py` in the background
 2. Reads the active model from `~/.cline/data/settings/providers.json`
 3. Optionally merges Tavily MCP from Cline's MCP config
 4. Launches `claude` with `ANTHROPIC_BASE_URL` pointed at the proxy
@@ -74,7 +74,7 @@ All configuration comes from Cline's files — no secrets or models are hardcode
 | `~/.cline/data/settings/providers.json` | Provider, model, auth tokens |
 | `~/.cline/data/secrets.json` | OAuth idToken and refreshToken (under `cline:clineAccountId`) |
 | `~/.cline/data/settings/cline_mcp_settings.json` | Tavily MCP key (optional, merged if present) |
-| `mcp.json` | Local MCP overrides (starts empty, add your custom MCPs here) |
+| `claude-cline-mcp.json` | Local MCP overrides (starts empty, add your custom MCPs here) |
 
 ### Token refresh
 
@@ -88,14 +88,14 @@ cline auth
 
 Claude Code's built-in `WebSearch` tool will **not work** through this proxy — it is an Anthropic-only feature that requires a direct connection to the Anthropic API. If you need internet search capabilities, you have two options:
 
-1. **Tavily via Cline (automatic)** — configure Tavily as an MCP server in your Cline settings. The launcher (`run_claude.sh`) will automatically detect it and merge the configuration.
-2. **Any other search MCP** — add your preferred web search tool (e.g. Brave Search, Exa) as an MCP server in `mcp.json`.
+1. **Tavily via Cline (automatic)** — configure Tavily as an MCP server in your Cline settings. The launcher (`claude-cline.sh`) will automatically detect it and merge the configuration.
+2. **Any other search MCP** — add your preferred web search tool (e.g. Brave Search, Exa) as an MCP server in `claude-cline-mcp.json`.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management |
-| `run_claude.sh` | Launcher: starts proxy, reads Cline config, runs claude |
-| `mcp.json` | MCP server definitions (user-editable, Tavily is merged from Cline) |
+| `claude-cline-proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management |
+| `claude-cline.sh` | Launcher: starts proxy, reads Cline config, runs claude |
+| `claude-cline-mcp.json` | MCP server definitions (user-editable, Tavily is merged from Cline) |
 | `AGENTS.md` | Architecture notes, auth flow details |
