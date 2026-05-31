@@ -68,7 +68,7 @@ async def refresh_and_save_tokens(providers: dict, active_id: str, s: dict) -> s
             pass
 
     if not refresh_token:
-        raise RuntimeError("No refresh token available. Please re-authenticate in Cline.")
+        raise RuntimeError("No refresh token available. Run 'cline auth' to re-authenticate.")
 
     try:
         result = await do_token_refresh(refresh_token)
@@ -103,7 +103,7 @@ async def refresh_and_save_tokens(providers: dict, active_id: str, s: dict) -> s
             logger.info("Falling back to existing accessToken")
             return raw
 
-    raise RuntimeError("All tokens expired and refresh failed. Please re-authenticate in Cline (open Cline providers tab and sign in again).")
+    raise RuntimeError("All tokens expired and refresh failed. Run 'cline auth' to re-authenticate.")
 
 
 async def do_token_refresh(refresh_token: str) -> dict:

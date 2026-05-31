@@ -33,6 +33,9 @@
 2. accessToken from providers.json (if valid) → as-is
 3. Refresh via Cline API → update both files → `workos:` + newAccessToken
 
+## Language
+- English is the official language of this project. All code, comments, documentation, commit messages, and communication must be in English.
+
 ## Key Architecture Decisions
 - Model is read dynamically from providers.json on each request
 - Tavily MCP — only from Cline config (conditional), no hardcoded keys

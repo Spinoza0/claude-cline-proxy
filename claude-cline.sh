@@ -39,6 +39,65 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
+# Check Cline tokens are valid before starting proxy
+python3 -c "
+import json, os, time, base64
+
+def decode_jwt_exp(token):
+    try:
+        payload_b64 = token.split('.')[1]
+        payload_b64 += '=' * (4 - len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return payload.get('exp', 0)
+    except Exception:
+        return 0
+
+def token_valid(token):
+    return bool(token) and time.time() < decode_jwt_exp(token)
+
+secrets_file = os.path.expanduser('$HOME/.cline/data/secrets.json')
+providers_file = os.path.expanduser('$HOME/.cline/data/settings/providers.json')
+
+try:
+    with open(secrets_file) as f:
+        secrets = json.load(f)
+    acc = secrets.get('cline:clineAccountId', '')
+    if acc:
+        acc_data = json.loads(acc) if isinstance(acc, str) else acc
+        id_token = acc_data.get('idToken', '')
+        if id_token and token_valid(id_token):
+            exit(0)
+except: pass
+
+try:
+    with open(providers_file) as f:
+        providers = json.load(f)
+    active_id = providers.get('lastUsedProvider', 'cline')
+    active = providers.get('providers', {}).get(active_id, {})
+    s = active.get('settings', {})
+    if s.get('provider') == 'cline':
+        raw = s.get('auth', {}).get('accessToken', '')
+        if raw.startswith('workos:'):
+            raw_token = raw[7:]
+            if token_valid(raw_token):
+                exit(0)
+except: pass
+
+# No valid tokens found — only fail if using cline provider
+try:
+    with open(providers_file) as f:
+        p = json.load(f)
+    active_id = p.get('lastUsedProvider', 'cline')
+    active = p.get('providers', {}).get(active_id, {})
+    if active.get('settings', {}).get('provider') == 'cline':
+        exit(1)
+except: pass
+" 2>/dev/null || {
+    echo "Cline session expired." >&2
+    echo "To re-authenticate, run: cline auth" >&2
+    exit 1
+}
+
 # Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
 BREW_PREFIX=""
 if [[ "$DIR" == */Cellar/*/bin ]]; then
