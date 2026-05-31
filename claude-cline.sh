@@ -8,7 +8,8 @@ while [ -h "$SCRIPT" ]; do
     [[ "$SCRIPT" != /* ]] && SCRIPT="$DIR/$SCRIPT"
 done
 DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
-PORT_FILE="/tmp/claude-proxy-port.txt"
+INSTANCE_ID=$$
+PORT_FILE="/tmp/claude-proxy-port-$INSTANCE_ID.txt"
 PROXY_PID=""
 
 # Check Cline is installed
@@ -23,7 +24,7 @@ fi
 # Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
 BREW_PREFIX=""
 if [[ "$DIR" == */Cellar/*/bin ]]; then
-    BREW_PREFIX="$(cd "$DIR/../.." && pwd)"
+    BREW_PREFIX="$(cd "$DIR/.." && pwd)"
 fi
 
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-XXXXXX.json)
