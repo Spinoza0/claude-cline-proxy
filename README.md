@@ -2,6 +2,8 @@
 
 Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) using any model from your [Cline](https://cline.bot) provider configuration via a local proxy that translates Anthropic Messages API ↔ OpenAI Chat Completions API.
 
+**macOS only** — this project relies on Cline's desktop configuration and token files, which are only available on macOS.
+
 ## How it works
 
 ```
