@@ -54,11 +54,8 @@ if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
 fi
 
-# Use Homebrew venv python if available, otherwise system python3
+# Use system python3
 PYTHON="python3"
-if [ -n "$BREW_PREFIX" ] && [ -f "$BREW_PREFIX/libexec/venv/bin/python3" ]; then
-    PYTHON="$BREW_PREFIX/libexec/venv/bin/python3"
-fi
 
 echo "Starting Cline proxy..."
 if [ -n "$CLAUDE_PROXY_LOG" ]; then
