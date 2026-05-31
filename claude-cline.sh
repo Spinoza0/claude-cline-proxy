@@ -3,7 +3,9 @@ set -e
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
+    DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
     SCRIPT="$(readlink "$SCRIPT")"
+    [[ "$SCRIPT" != /* ]] && SCRIPT="$DIR/$SCRIPT"
 done
 DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
 PORT_FILE="/tmp/claude-proxy-port.txt"
