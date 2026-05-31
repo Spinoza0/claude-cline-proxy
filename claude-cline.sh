@@ -21,13 +21,31 @@ if [ ! -d "$HOME/.cline" ]; then
     exit 1
 fi
 
+# Check python3 is available
+if ! command -v python3 &>/dev/null; then
+    echo "Error: python3 is not installed." >&2
+    echo "" >&2
+    echo "Python 3 is required to run the proxy." >&2
+    echo "Install it from: https://www.python.org/downloads/" >&2
+    exit 1
+fi
+
+# Check claude CLI is available
+if ! command -v claude &>/dev/null; then
+    echo "Error: claude CLI is not installed." >&2
+    echo "" >&2
+    echo "Claude Code CLI is required." >&2
+    echo "Install it from: https://docs.anthropic.com/en/docs/claude-code" >&2
+    exit 1
+fi
+
 # Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
 BREW_PREFIX=""
 if [[ "$DIR" == */Cellar/*/bin ]]; then
     BREW_PREFIX="$(cd "$DIR/.." && pwd)"
 fi
 
-MCP_CONFIG=$(mktemp /tmp/claude-mcp-XXXXXX.json)
+MCP_CONFIG=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX.json)
 
 cleanup() {
     local code=$?
