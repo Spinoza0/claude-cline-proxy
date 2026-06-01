@@ -104,6 +104,12 @@ if [[ "$DIR" == */Cellar/*/bin ]]; then
     BREW_PREFIX="$(cd "$DIR/.." && pwd)"
 fi
 
+# Use venv python when installed via Homebrew, otherwise system python3
+PYTHON="python3"
+if [ -n "$BREW_PREFIX" ] && [ -x "$BREW_PREFIX/libexec/bin/python3" ]; then
+    PYTHON="$BREW_PREFIX/libexec/bin/python3"
+fi
+
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX.json)
 
 cleanup() {
@@ -131,9 +137,6 @@ fi
 if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
 fi
-
-# Use system python3
-PYTHON="python3"
 
 echo "Starting Cline proxy..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
