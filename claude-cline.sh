@@ -106,8 +106,12 @@ fi
 
 # Use venv python when installed via Homebrew, otherwise system python3
 PYTHON="python3"
-if [ -n "$BREW_PREFIX" ] && [ -x "$BREW_PREFIX/libexec/bin/python3" ]; then
-    PYTHON="$BREW_PREFIX/libexec/bin/python3"
+if [ -n "$BREW_PREFIX" ]; then
+    if [ -x "$BREW_PREFIX/libexec/venv/bin/python3" ]; then
+        PYTHON="$BREW_PREFIX/libexec/venv/bin/python3"
+    elif [ -x "$BREW_PREFIX/libexec/bin/python3" ]; then
+        PYTHON="$BREW_PREFIX/libexec/bin/python3"
+    fi
 fi
 
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX.json)
