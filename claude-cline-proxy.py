@@ -131,7 +131,7 @@ async def load_cline_config():
     providers = json.loads(PROVIDERS_FILE.read_text())
     secrets = json.loads(SECRETS_FILE.read_text()) if SECRETS_FILE.exists() else {}
 
-    active_id = providers.get("lastUsedProvider", "cline")
+    active_id = os.environ.get("CLINE_OVERRIDE_PROVIDER") or providers.get("lastUsedProvider", "cline")
     active = providers["providers"].get(active_id)
     if not active:
         raise RuntimeError(f"Provider '{active_id}' not found")

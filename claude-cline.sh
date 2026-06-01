@@ -142,6 +142,19 @@ if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
 fi
 
+# Locate select script alongside proxy script
+SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
+
+# Provider selection menu
+CLINE_OVERRIDE_PROVIDER=""
+if [ -f "$SELECT_SCRIPT" ]; then
+    SELECTED=$($PYTHON "$SELECT_SCRIPT" </dev/tty 2>/dev/null || true)
+    if [ -n "$SELECTED" ] && [ "$SELECTED" != "cline" ]; then
+        CLINE_OVERRIDE_PROVIDER="$SELECTED"
+        export CLINE_OVERRIDE_PROVIDER
+    fi
+fi
+
 echo "Starting Cline proxy (Python: $PYTHON)..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
 LOG_FILE="/tmp/claude-proxy-$$.log"
@@ -183,7 +196,8 @@ CLINE_MODEL=$($PYTHON -c "
 import json, os
 try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
-    active = p.get('providers', {}).get(p.get('lastUsedProvider', 'cline'), {})
+    active_id = os.environ.get('CLINE_OVERRIDE_PROVIDER') or p.get('lastUsedProvider', 'cline')
+    active = p.get('providers', {}).get(active_id, {})
     print(active.get('settings', {}).get('model', ''))
 except: pass
 " 2>/dev/null)
