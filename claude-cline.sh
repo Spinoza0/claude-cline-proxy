@@ -120,7 +120,7 @@ cleanup() {
         kill "$PROXY_PID" 2>/dev/null
         wait "$PROXY_PID" 2>/dev/null || true
     fi
-    rm -f "$PORT_FILE" "$MCP_CONFIG"
+    rm -f "$PORT_FILE" "$MCP_CONFIG" "/tmp/claude-proxy-$$.log"
     exit $code
 }
 
@@ -138,14 +138,10 @@ if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
     PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
 fi
 
-echo "Starting Cline proxy..."
+echo "Starting Cline proxy (Python: $PYTHON)..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
-if [ -n "$CLAUDE_PROXY_LOG" ]; then
-    LOG_FILE="/tmp/claude-proxy.log"
-    $PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
-else
-    $PYTHON "$PROXY_SCRIPT" > /dev/null 2>&1 &
-fi
+LOG_FILE="/tmp/claude-proxy-$$.log"
+$PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
 PROXY_PID=$!
 
 PORT=""
@@ -159,6 +155,14 @@ done
 
 if [ -z "$PORT" ]; then
     echo "Proxy failed to start (port file not found)" >&2
+    echo "Python: $PYTHON" >&2
+    echo "Script: $PROXY_SCRIPT" >&2
+    echo "Log: $LOG_FILE" >&2
+    if [ -s "$LOG_FILE" ]; then
+        echo "--- proxy output ---" >&2
+        cat "$LOG_FILE" >&2
+        echo "---" >&2
+    fi
     kill "$PROXY_PID" 2>/dev/null || true
     exit 1
 fi
