@@ -27,9 +27,10 @@ def fmt(pid):
     return f"{pid}: {s.get('provider', '?')} / {s.get('model', '?')}"
 
 N = 1 + len(pids)
-sys.stderr.write(f"Select provider (\u2191\u2193 to move, Enter to confirm, auto in 5s):\n")
+NL = "\r\n"
+sys.stderr.write(f"Select provider (\u2191\u2193 to move, Enter to confirm, auto in 5s):{NL}")
 for i, pid in enumerate(pids):
-    sys.stderr.write(f"  {'\u2192' if i == idx else ' '} {fmt(pid)}\n")
+    sys.stderr.write(f"  {'\u2192' if i == idx else ' '} {fmt(pid)}{NL}")
 sys.stderr.flush()
 
 start = time.time()
@@ -52,9 +53,9 @@ try:
                 idx = (idx - 1) % len(pids) if nxt == "[A" else (idx + 1) % len(pids)
                 start = time.time()
                 sys.stderr.write(f"\033[{N}A\033[J")
-                sys.stderr.write(f"Select provider (\u2191\u2193 to move, Enter to confirm, auto in 5s):\n")
+                sys.stderr.write(f"Select provider (\u2191\u2193 to move, Enter to confirm, auto in 5s):{NL}")
                 for i, pid in enumerate(pids):
-                    sys.stderr.write(f"  {'\u2192' if i == idx else ' '} {fmt(pid)}\n")
+                    sys.stderr.write(f"  {'\u2192' if i == idx else ' '} {fmt(pid)}{NL}")
                 sys.stderr.flush()
         elif ch in ("\r", "\n"):
             break
