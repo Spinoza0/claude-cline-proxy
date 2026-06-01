@@ -11,6 +11,7 @@ PORT_RANGE = (8000, 9000)
 MAX_PORT_ATTEMPTS = 5
 CLINE_API = "https://api.cline.bot/api/v1/chat/completions"
 CLINE_REFRESH_URL = "https://api.cline.bot/api/v1/auth/refresh"
+OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
