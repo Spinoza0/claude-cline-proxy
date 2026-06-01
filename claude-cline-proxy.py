@@ -156,7 +156,7 @@ async def load_cline_config():
     elif provider == "openrouter":
         api_key = s.get("apiKey", secrets.get("openRouterApiKey", ""))
         api_url = OPENROUTER_API
-    elif provider == "openai-compatible":
+    elif provider in ("openai", "openai-compatible"):
         api_key = s.get("apiKey", "")
         base = s.get("baseUrl", "").rstrip("/")
         api_url = base + "/chat/completions"
