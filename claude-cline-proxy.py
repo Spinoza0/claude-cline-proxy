@@ -166,7 +166,7 @@ async def load_cline_config():
     else:
         raise RuntimeError(f"Unsupported provider: {provider}")
 
-    if not api_key and provider not in ("openai-compatible",):
+    if not api_key and provider not in ("openai", "openai-compatible"):
         raise RuntimeError(f"No API key for provider '{provider}'")
 
     logger.info("Config: provider=%s model=%s api=%s", provider, model, api_url.split("//")[1] if "//" in api_url else api_url)
