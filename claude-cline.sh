@@ -147,8 +147,8 @@ SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
 
 # Provider selection menu
 CLINE_OVERRIDE_PROVIDER=""
-if [ -f "$SELECT_SCRIPT" ] && [ -t 0 ]; then
-    SELECTED=$(exec 2>/dev/null; $PYTHON "$SELECT_SCRIPT" </dev/tty || true)
+if [ -f "$SELECT_SCRIPT" ] && [ -t 0 ] && [ -c /dev/tty ]; then
+    SELECTED=$($PYTHON "$SELECT_SCRIPT" </dev/tty || true)
     if [ -n "$SELECTED" ] && [ "$SELECTED" != "cline" ]; then
         CLINE_OVERRIDE_PROVIDER="$SELECTED"
         export CLINE_OVERRIDE_PROVIDER
