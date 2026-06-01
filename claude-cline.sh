@@ -147,13 +147,14 @@ SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
 
 # Provider selection menu
 CLINE_OVERRIDE_PROVIDER=""
-if [ -f "$SELECT_SCRIPT" ]; then
-    SELECTED=$($PYTHON "$SELECT_SCRIPT" </dev/tty 2>/dev/null || true)
+if [ -f "$SELECT_SCRIPT" ] && [ -t 0 ]; then
+    SELECTED=$(exec 2>/dev/null; $PYTHON "$SELECT_SCRIPT" </dev/tty || true)
     if [ -n "$SELECTED" ] && [ "$SELECTED" != "cline" ]; then
         CLINE_OVERRIDE_PROVIDER="$SELECTED"
         export CLINE_OVERRIDE_PROVIDER
     fi
 fi
+
 
 echo "Starting Cline proxy (Python: $PYTHON)..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
