@@ -257,9 +257,10 @@ def translate_request(body: dict, config: dict) -> dict:
     if "stop_sequences" in body:
         oai_body["stop"] = body["stop_sequences"]
 
-    if "tools" in body:
+    tools = body.get("tools")
+    if tools:
         oai_body["tools"] = []
-        for t in body["tools"]:
+        for t in tools:
             oai_body["tools"].append({
                 "type": "function",
                 "function": {
@@ -277,7 +278,7 @@ def build_anthropic_response(openai_body: dict, config: dict, model_name: str = 
     content_blocks = []
     if msg.get("content"):
         content_blocks.append({"type": "text", "text": msg["content"]})
-    for tc in msg.get("tool_calls", []):
+    for tc in (msg.get("tool_calls") or []):
         try:
             inp = json.loads(tc["function"]["arguments"])
         except (json.JSONDecodeError, KeyError):
@@ -313,7 +314,7 @@ async def call_openai(config: dict, oai_body: dict) -> dict:
                 err = await resp.text()
                 raise RuntimeError(f"API error {resp.status}: {err}")
             result = await resp.json()
-            if "data" in result:
+            if isinstance(result, dict) and "data" in result:
                 result = result["data"]
             return result
 
@@ -444,7 +445,7 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
             if not choices:
                 continue
 
-            delta = choices[0].get("delta", {})
+            delta = choices[0].get("delta") or {}
             finish = choices[0].get("finish_reason")
 
             reasoning = delta.get("reasoning", "")
@@ -485,7 +486,7 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                     "delta": {"type": "text_delta", "text": content},
                 }))
 
-            tool_calls = delta.get("tool_calls", [])
+            tool_calls = delta.get("tool_calls") or []
             for tc in tool_calls:
                 tc_idx = tc.get("index", 0)
                 if tc_idx not in current_tool_calls:
