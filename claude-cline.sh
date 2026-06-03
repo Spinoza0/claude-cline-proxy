@@ -252,4 +252,24 @@ if [ -n "$CLINE_MODEL" ]; then
     export ANTHROPIC_DEFAULT_HAIKU_MODEL="$CLINE_MODEL"
 fi
 
-claude --tools default "$@" --mcp-config "$MCP_CONFIG"
+# Auto-add --verbose when --output-format stream-json is used
+EXTRA=""
+skip=0
+for arg in "$@"; do
+    if [ $skip -eq 1 ]; then
+        skip=0
+        if [ "$arg" = "stream-json" ]; then
+            EXTRA="--verbose"
+            break
+        fi
+        continue
+    fi
+    if [ "$arg" = "--output-format" ]; then
+        skip=1
+    elif [ "$arg" = "--output-format=stream-json" ]; then
+        EXTRA="--verbose"
+        break
+    fi
+done
+
+claude --tools default "$@" $EXTRA --mcp-config "$MCP_CONFIG"
