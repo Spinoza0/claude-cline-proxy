@@ -143,6 +143,27 @@ async def load_cline_config():
     api_key = ""
     api_url = ""
 
+    # Check globalState.json for per-mode model override (set by IDE plugin)
+    GLOBAL_STATE_FILE = Path.home() / ".cline" / "data" / "globalState.json"
+    if GLOBAL_STATE_FILE.exists():
+        try:
+            gs = json.loads(GLOBAL_STATE_FILE.read_text())
+            # Map provider type → globalState key suffix
+            key_suffix_map = {
+                "cline": "Cline",
+                "openrouter": "OpenRouter",
+                "openai": "OpenAi",
+                "openai-compatible": "OpenAi",
+                "fireworks": "Fireworks",
+            }
+            mode = gs.get("mode", "act").lower()
+            gs_model_key = f"{mode}Mode{key_suffix_map.get(provider, provider.title())}ModelId"
+            gs_model = gs.get(gs_model_key, "")
+            if gs_model and not os.environ.get("CLINE_OVERRIDE_MODEL"):
+                model = gs_model
+        except Exception as e:
+            logger.warning("Failed to read globalState.json: %s", e)
+
     if provider == "cline":
         workos_token = ""
         acc_data_str = secrets.get("cline:clineAccountId", "")

@@ -12,26 +12,38 @@ INSTANCE_ID=$$
 PORT_FILE="/tmp/claude-proxy-port-$INSTANCE_ID.txt"
 PROXY_PID=""
 
-# Parse --model <name> from args before passing rest to claude
+# Parse --model and --provider from args before passing rest to claude
 CLINE_OVERRIDE_MODEL=""
+CLINE_OVERRIDE_PROVIDER="${CLINE_OVERRIDE_PROVIDER:-}"
 PARSED_ARGS=()
-skip_next=0
+skip_next=""
 for arg in "$@"; do
-    if [ $skip_next -eq 1 ]; then
-        CLINE_OVERRIDE_MODEL="$arg"
-        skip_next=0
+    if [ -n "$skip_next" ]; then
+        if [ "$skip_next" = "model" ]; then
+            CLINE_OVERRIDE_MODEL="$arg"
+        elif [ "$skip_next" = "provider" ]; then
+            CLINE_OVERRIDE_PROVIDER="$arg"
+        fi
+        skip_next=""
         continue
     fi
     if [ "$arg" = "--model" ]; then
-        skip_next=1
+        skip_next="model"
+        continue
+    fi
+    if [ "$arg" = "--provider" ]; then
+        skip_next="provider"
+        continue
+    fi
+    if [ "${arg#--provider=}" != "$arg" ]; then
+        CLINE_OVERRIDE_PROVIDER="${arg#--provider=}"
         continue
     fi
     PARSED_ARGS+=("$arg")
 done
 set -- "${PARSED_ARGS[@]}"
-if [ -n "$CLINE_OVERRIDE_MODEL" ]; then
-    export CLINE_OVERRIDE_MODEL
-fi
+[ -n "$CLINE_OVERRIDE_MODEL" ] && export CLINE_OVERRIDE_MODEL
+[ -n "$CLINE_OVERRIDE_PROVIDER" ] && export CLINE_OVERRIDE_PROVIDER
 
 # Check Cline is installed
 if [ ! -d "$HOME/.cline" ]; then
@@ -166,9 +178,8 @@ fi
 # Locate select script alongside proxy script
 SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
 
-# Provider selection menu (skip if --model was specified)
-CLINE_OVERRIDE_PROVIDER=""
-if [ -z "$CLINE_OVERRIDE_MODEL" ] && [ -f "$SELECT_SCRIPT" ] && [ -t 0 ] && [ -c /dev/tty ]; then
+# Provider selection menu (skip if --model or --provider was specified)
+if [ -z "$CLINE_OVERRIDE_MODEL" ] && [ -z "$CLINE_OVERRIDE_PROVIDER" ] && [ -f "$SELECT_SCRIPT" ] && [ -t 0 ] && [ -c /dev/tty ]; then
     SELECTED=$($PYTHON "$SELECT_SCRIPT" </dev/tty || true)
     if [ -n "$SELECTED" ] && [ "$SELECTED" != "cline" ]; then
         CLINE_OVERRIDE_PROVIDER="$SELECTED"
