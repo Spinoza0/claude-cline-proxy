@@ -274,7 +274,7 @@ def translate_request(body: dict, config: dict) -> dict:
                     })
             if oai_parts:
                 has_user = any(
-                    r["role"] == "user" and r.get("content") is oai_parts
+                    r["role"] == "user" and r.get("content") == oai_parts
                     for r in messages
                 )
                 if not has_user:
@@ -632,14 +632,6 @@ async def handle_health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok", "provider": config["provider"], "model": config["model"]})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=503)
-
-
-def find_port() -> int:
-    for attempt in range(1, MAX_PORT_ATTEMPTS + 1):
-        port = random.randint(*PORT_RANGE)
-        if not any(p.info[1] == port for p in asyncio.run(find_connections())):
-            return port
-    raise RuntimeError(f"Could not find free port after {MAX_PORT_ATTEMPTS} attempts")
 
 
 async def find_connections() -> list:

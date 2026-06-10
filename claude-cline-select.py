@@ -29,8 +29,6 @@ if len(pids) <= 1 or not sys.stdin.isatty():
     print(pids[0] if pids else DEFAULT, end="")
     sys.exit(0)
 
-GLOBAL_STATE_FILE = os.path.expanduser("~/.cline/data/globalState.json")
-
 # Read globalState to get per-mode model overrides (set by IDE plugin)
 gs_overrides = {}
 if os.path.exists(GLOBAL_STATE_FILE):

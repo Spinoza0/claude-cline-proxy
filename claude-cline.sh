@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.4.1"
+VERSION="1.4.2"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -90,6 +90,23 @@ def decode_jwt_exp(token):
 def token_valid(token):
     return bool(token) and time.time() < decode_jwt_exp(token)
 
+def get_active_id(providers):
+    """Same priority chain as proxy: env → globalState → lastUsedProvider"""
+    env_id = os.environ.get('CLINE_OVERRIDE_PROVIDER')
+    if env_id:
+        return env_id
+    gs_path = os.path.expanduser('$HOME/.cline/data/globalState.json')
+    if os.path.exists(gs_path):
+        try:
+            gs = json.load(open(gs_path))
+            mode = gs.get('mode', 'act').lower()
+            gs_pid = gs.get(f'{mode}ModeApiProvider', '')
+            if gs_pid and gs_pid in providers.get('providers', {}):
+                return gs_pid
+        except Exception:
+            pass
+    return providers.get('lastUsedProvider', 'cline')
+
 secrets_file = os.path.expanduser('$HOME/.cline/data/secrets.json')
 providers_file = os.path.expanduser('$HOME/.cline/data/settings/providers.json')
 
@@ -107,7 +124,7 @@ except: pass
 try:
     with open(providers_file) as f:
         providers = json.load(f)
-    active_id = providers.get('lastUsedProvider', 'cline')
+    active_id = get_active_id(providers)
     active = providers.get('providers', {}).get(active_id, {})
     s = active.get('settings', {})
     if s.get('provider') == 'cline':
@@ -122,7 +139,7 @@ except: pass
 try:
     with open(providers_file) as f:
         p = json.load(f)
-    active_id = p.get('lastUsedProvider', 'cline')
+    active_id = get_active_id(p)
     active = p.get('providers', {}).get(active_id, {})
     if active.get('settings', {}).get('provider') == 'cline':
         exit(1)

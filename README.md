@@ -17,7 +17,7 @@ claude-cline-select.py  (interactive provider menu, optional)
 The proxy:
 
 - Reads your active provider and model from Cline's config files at each request (no hardcoded models)
-- **Source of truth** for active provider: `globalState.json` (set by IDE plugin) → `CLINE_OVERRIDE_PROVIDER` env → `providers.json` → fallback to `lastUsedProvider`
+- **Source of truth** for active provider: `CLINE_OVERRIDE_PROVIDER` env → `globalState.json` (set by IDE plugin) → `providers.json` → fallback to `lastUsedProvider`
 - **Source of truth** for model: `CLINE_OVERRIDE_MODEL` env → `globalState.json` per-mode override → provider's default model in `providers.json`
 - Ignores the model name sent by `claude` in the request body — always uses its own resolved model
 - Translates Anthropic streaming API calls (including tool calls, multi-turn, reasoning blocks) to OpenAI format

@@ -37,7 +37,7 @@
 - English is the official language of this project. All code, comments, documentation, commit messages, and communication must be in English.
 
 ## Key Architecture Decisions
-- Model is read dynamically from providers.json on each request
+- Model is read from globalState.json first, then providers.json
 - Tavily MCP — only from Cline config (conditional), no hardcoded keys
 - `--bare` not needed — `ANTHROPIC_API_KEY` (dummy) suffices for all tools
 - Proxy port — random from 8000-9000, up to 5 attempts
