@@ -16,8 +16,10 @@ claude-cline-select.py  (interactive provider menu, optional)
 
 The proxy:
 
-- Reads your active provider and model from Cline's `providers.json` at each request (no hardcoded models)
-- Also reads per-mode model overrides from `globalState.json` (set by Cline IDE plugins)
+- Reads your active provider and model from Cline's config files at each request (no hardcoded models)
+- **Source of truth** for active provider: `globalState.json` (set by IDE plugin) → `CLINE_OVERRIDE_PROVIDER` env → `providers.json` → fallback to `lastUsedProvider`
+- **Source of truth** for model: `CLINE_OVERRIDE_MODEL` env → `globalState.json` per-mode override → provider's default model in `providers.json`
+- Ignores the model name sent by `claude` in the request body — always uses its own resolved model
 - Translates Anthropic streaming API calls (including tool calls, multi-turn, reasoning blocks) to OpenAI format
 - Handles Cline OAuth token refresh automatically via `api.cline.bot/api/v1/auth/refresh`
 - Picks a random available port in the 8000–9000 range
@@ -47,16 +49,16 @@ chmod +x claude-cline.sh
 ## Usage
 
 ```bash
-# interactive — shows provider selection menu (5s timeout, defaults to last used)
+# interactive — shows provider selection menu (5s timeout, defaults to globalState)
 claude-cline
 
-# quick prompt via the last-used provider
+# quick prompt via the globalState-selected provider
 claude-cline -p "explain how streams work in Python"
 
 # select provider explicitly (skips menu)
 claude-cline --provider openrouter -p "design a database schema"
 
-# use a specific model (skips menu, overrides provider's default model)
+# use a specific model (skips menu, overrides all other model sources)
 claude-cline --model deepseek/deepseek-v4-flash -p "hi"
 
 # combine provider and model override
@@ -71,25 +73,32 @@ echo "refactor this code" | claude-cline --model claude-sonnet-4-20250514
 
 ### Provider selection menu
 
-When run interactively without `--model` or `--provider`, a menu shows all configured providers:
+When run interactively without `--model` or `--provider`, a menu shows all configured providers.
+The default selection comes from `globalState.json` first, then `lastUsedProvider`:
 
 ```
 Select provider (↑↓ to move, Enter to confirm, auto in 5s):
-  → cline: cline / deepseek/deepseek-v4-flash
+  → cline: cline / kwaipilot/kat-coder-pro
     openrouter: openrouter / qwen/qwen3-coder:free
     openai-compatible: openai-compatible / qwen3.5:9b
     sapaicore: sapaicore / gpt-5.4
-Models: deepseek/deepseek-v4-flash qwen/qwen3-coder:free qwen3.5:9b
+Models: kwaipilot/kat-coder-pro qwen/qwen3-coder:free qwen3.5:9b
 ```
 
 - Models shown reflect the actual active model (reads both `providers.json` and `globalState.json`)
 - The `Models:` line at the bottom is copyable for use with `--model`
 
-### Model override from IDE plugin
+### IDE plugin integration
 
-Cline IDE plugins (VS Code, JetBrains) store model selections in `globalState.json`.
-The proxy reads this file and uses the per-mode model override automatically —
-no need to manually update `providers.json`.
+Cline IDE plugins (VS Code, JetBrains) store selections in `globalState.json`:
+
+| Key | Value |
+|-----|-------|
+| `planModeApiProvider` / `actModeApiProvider` | Active provider ID (e.g. `cline`) |
+| `planModeClineModelId` / `actModeClineModelId` | Model override for the cline provider |
+
+The proxy reads these automatically — no manual config needed.
+Changes made in the plugin apply immediately on the next `claude-cline` run.
 
 ### Proxy logs
 
@@ -104,18 +113,24 @@ CLAUDE_PROXY_LOG=1 claude-cline <your prompt>
 
 | Flag | Description |
 |------|-------------|
-| `--model <name>` | Override the model name. Skips provider menu. |
+| `--model <name>` | Override the model name. Skips provider menu. Takes highest priority. |
 | `--provider <id>` | Use a specific provider config. Skips provider menu. Use with `--model` for full override. |
 | `--output-format stream-json` | Enables JSON streaming output. `--verbose` is auto-added (required by `claude --print`). |
 
 ## Configuration
 
-All configuration comes from Cline files — no secrets or models are hardcoded:
+All configuration comes from Cline files — no secrets or models are hardcoded.
+
+### Priority chain
+
+1. **`CLINE_OVERRIDE_MODEL` / `CLINE_OVERRIDE_PROVIDER`** (env vars, set by `--model`/`--provider` flags)
+2. **`globalState.json`** (per-mode provider and model selections from IDE plugin)
+3. **`providers.json`** (API keys, base URLs, default models, lastUsedProvider)
 
 | File | Role |
 |------|------|
-| `~/.cline/data/settings/providers.json` | Provider configs (API keys, base URLs, default models) |
-| `~/.cline/data/globalState.json` | Per-mode model overrides (set by Cline IDE plugins) |
+| `~/.cline/data/globalState.json` | **Primary**: active provider ID (`{mode}ModeApiProvider`) and per-mode model overrides (`{mode}Mode<Type>ModelId`) |
+| `~/.cline/data/settings/providers.json` | **Secondary**: API keys, base URLs, provider types, default models |
 | `~/.cline/data/secrets.json` | OAuth idToken and refreshToken (under `cline:clineAccountId`) |
 | `~/.cline/data/settings/cline_mcp_settings.json` | Tavily MCP key (optional, merged if present) |
 | `claude-cline-mcp.json` | Local MCP overrides (starts empty, add your custom MCPs here) |
@@ -139,8 +154,8 @@ Claude Code's built-in `WebSearch` tool will **not work** through this proxy —
 
 | File | Purpose |
 |------|---------|
-| `claude-cline-proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management, globalState model override |
+| `claude-cline-proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management, config resolution from globalState + providers.json |
 | `claude-cline.sh` | Launcher: starts proxy, parses `--model`/`--provider`, auto-adds `--verbose` for stream-json, runs claude |
-| `claude-cline-select.py` | Interactive TUI provider selection menu with 5s timeout |
+| `claude-cline-select.py` | Interactive TUI provider selection menu with 5s timeout and globalState-aware defaults |
 | `claude-cline-mcp.json` | MCP server definitions (user-editable; Tavily merged from Cline automatically) |
 | `AGENTS.md` | Internal architecture notes, auth flow details |
