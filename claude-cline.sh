@@ -166,9 +166,9 @@ fi
 # Locate select script alongside proxy script
 SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
 
-# Provider selection menu
+# Provider selection menu (skip if --model was specified)
 CLINE_OVERRIDE_PROVIDER=""
-if [ -f "$SELECT_SCRIPT" ] && [ -t 0 ] && [ -c /dev/tty ]; then
+if [ -z "$CLINE_OVERRIDE_MODEL" ] && [ -f "$SELECT_SCRIPT" ] && [ -t 0 ] && [ -c /dev/tty ]; then
     SELECTED=$($PYTHON "$SELECT_SCRIPT" </dev/tty || true)
     if [ -n "$SELECTED" ] && [ "$SELECTED" != "cline" ]; then
         CLINE_OVERRIDE_PROVIDER="$SELECTED"
