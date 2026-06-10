@@ -26,6 +26,13 @@ def fmt(pid):
     s = providers[pid].get("settings", {})
     return f"{pid}: {s.get('provider', '?')} / {s.get('model', '?')}"
 
+def model_list():
+    return " ".join(
+        providers[pid]["settings"]["model"]
+        for pid in pids
+        if "model" in providers[pid].get("settings", {})
+    )
+
 N = 1 + len(pids)
 NL = "\r\n"
 sys.stderr.write(f"Select provider (\u2191\u2193 to move, Enter to confirm, auto in 5s):{NL}")
@@ -64,6 +71,9 @@ try:
 finally:
     termios.tcsetattr(fd, termios.TCSADRAIN, old)
     sys.stderr.write(f"\033[{N}A\033[J")
+    ml = model_list()
+    if ml:
+        sys.stderr.write(f"Models: {ml}{NL}")
     sys.stderr.flush()
 
 print(pids[idx], end="")
