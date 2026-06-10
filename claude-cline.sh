@@ -231,7 +231,21 @@ try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
     active_id = os.environ.get('CLINE_OVERRIDE_PROVIDER') or p.get('lastUsedProvider', 'cline')
     active = p.get('providers', {}).get(active_id, {})
-    print(active.get('settings', {}).get('model', ''))
+    model = active.get('settings', {}).get('model', '')
+
+    # Check globalState override (same logic as proxy)
+    gs_path = os.path.expanduser('$HOME/.cline/data/globalState.json')
+    if os.path.exists(gs_path):
+        gs = json.load(open(gs_path))
+        mode = gs.get('mode', 'act').lower()
+        ptype = active.get('settings', {}).get('provider', '')
+        suffix_map = {'cline': 'Cline', 'openrouter': 'OpenRouter', 'openai': 'OpenAi', 'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
+        gs_key = f'{mode}Mode{suffix_map.get(ptype, ptype.title())}ModelId'
+        gs_model = gs.get(gs_key, '')
+        if gs_model:
+            model = gs_model
+
+    print(model)
 except: pass
 " 2>/dev/null)}"
 

@@ -373,7 +373,7 @@ async def handle_messages(request: web.Request) -> web.Response:
         return web.json_response({"error": {"type": "api_error", "message": str(e)}}, status=500)
 
     is_stream = body.get("stream", False)
-    model_name = body.get("model", config["model"])
+    model_name = config["model"]
 
     try:
         oai_body = translate_request(body, config)
