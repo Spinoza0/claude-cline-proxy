@@ -229,16 +229,17 @@ CLINE_MODEL="${CLINE_OVERRIDE_MODEL:-$($PYTHON -c "
 import json, os
 try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
-    # Active provider: globalState → env override → lastUsedProvider
-    active_id = p.get('lastUsedProvider', 'cline')
     gs_path = os.path.expanduser('$HOME/.cline/data/globalState.json')
-    if os.path.exists(gs_path):
+    # Priority: env override → globalState → lastUsedProvider
+    active_id = os.environ.get('CLINE_OVERRIDE_PROVIDER') or ''
+    if not active_id and os.path.exists(gs_path):
         gs = json.load(open(gs_path))
         mode = gs.get('mode', 'act').lower()
         gs_pid = gs.get(f'{mode}ModeApiProvider', '')
         if gs_pid and gs_pid in p.get('providers', {}):
             active_id = gs_pid
-    active_id = os.environ.get('CLINE_OVERRIDE_PROVIDER') or active_id
+    if not active_id:
+        active_id = p.get('lastUsedProvider', 'cline')
     active = p.get('providers', {}).get(active_id, {})
     model = active.get('settings', {}).get('model', '')
 

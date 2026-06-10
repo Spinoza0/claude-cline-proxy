@@ -149,10 +149,10 @@ async def load_cline_config():
     providers = json.loads(PROVIDERS_FILE.read_text())
     secrets = json.loads(SECRETS_FILE.read_text()) if SECRETS_FILE.exists() else {}
 
-    # Source of truth for active provider: globalState → env override → lastUsedProvider
+    # Priority: explicit user override → globalState (IDE plugin) → lastUsedProvider
     active_id = (
-        get_gs_active_id(providers)
-        or os.environ.get("CLINE_OVERRIDE_PROVIDER")
+        os.environ.get("CLINE_OVERRIDE_PROVIDER")
+        or get_gs_active_id(providers)
         or providers.get("lastUsedProvider", "cline")
     )
     active = providers["providers"].get(active_id)
