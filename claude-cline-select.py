@@ -4,10 +4,22 @@ import json, os, sys, tty, termios, select, time
 PROVIDERS_FILE = os.path.expanduser("~/.cline/data/settings/providers.json")
 DEFAULT = "cline"
 
+GLOBAL_STATE_FILE = os.path.expanduser("~/.cline/data/globalState.json")
+
 try:
     p = json.load(open(PROVIDERS_FILE))
-    active_id = p.get("lastUsedProvider", DEFAULT)
     providers = p.get("providers", {})
+    # Active provider: globalState → lastUsedProvider → default
+    active_id = p.get("lastUsedProvider", DEFAULT)
+    if os.path.exists(GLOBAL_STATE_FILE):
+        try:
+            gs = json.load(open(GLOBAL_STATE_FILE))
+            mode = gs.get("mode", "act").lower()
+            gs_pid = gs.get(f"{mode}ModeApiProvider", "")
+            if gs_pid and gs_pid in providers:
+                active_id = gs_pid
+        except Exception:
+            pass
 except Exception:
     print(DEFAULT, end="")
     sys.exit(0)

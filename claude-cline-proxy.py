@@ -128,11 +128,33 @@ async def do_token_refresh(refresh_token: str) -> dict:
             return {"access_token": ad["accessToken"], "refresh_token": ad["refreshToken"], "expires_at": ad["expiresAt"]}
 
 
+def get_gs_active_id(providers: dict) -> str | None:
+    """Read the active provider ID from globalState.json (if available)."""
+    GS_PATH = Path.home() / ".cline" / "data" / "globalState.json"
+    if not GS_PATH.exists():
+        return None
+    try:
+        gs = json.loads(GS_PATH.read_text())
+        mode = gs.get("mode", "act").lower()
+        gs_provider = gs.get(f"{mode}ModeApiProvider", "")
+        # Validate it's a known provider before we switch to it
+        if gs_provider and gs_provider in providers.get("providers", {}):
+            return gs_provider
+    except Exception:
+        pass
+    return None
+
+
 async def load_cline_config():
     providers = json.loads(PROVIDERS_FILE.read_text())
     secrets = json.loads(SECRETS_FILE.read_text()) if SECRETS_FILE.exists() else {}
 
-    active_id = os.environ.get("CLINE_OVERRIDE_PROVIDER") or providers.get("lastUsedProvider", "cline")
+    # Source of truth for active provider: globalState → env override → lastUsedProvider
+    active_id = (
+        get_gs_active_id(providers)
+        or os.environ.get("CLINE_OVERRIDE_PROVIDER")
+        or providers.get("lastUsedProvider", "cline")
+    )
     active = providers["providers"].get(active_id)
     if not active:
         raise RuntimeError(f"Provider '{active_id}' not found")
@@ -143,12 +165,11 @@ async def load_cline_config():
     api_key = ""
     api_url = ""
 
-    # Check globalState.json for per-mode model override (set by IDE plugin)
+    # Check globalState.json for per-mode model override
     GLOBAL_STATE_FILE = Path.home() / ".cline" / "data" / "globalState.json"
     if GLOBAL_STATE_FILE.exists():
         try:
             gs = json.loads(GLOBAL_STATE_FILE.read_text())
-            # Map provider type → globalState key suffix
             key_suffix_map = {
                 "cline": "Cline",
                 "openrouter": "OpenRouter",
