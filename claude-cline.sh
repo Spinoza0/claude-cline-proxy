@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.4.2"
+VERSION="1.5.0"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -39,6 +39,10 @@ for arg in "$@"; do
     fi
     if [ "${arg#--provider=}" != "$arg" ]; then
         CLINE_OVERRIDE_PROVIDER="${arg#--provider=}"
+        continue
+    fi
+    if [ "${arg#--model=}" != "$arg" ]; then
+        CLINE_OVERRIDE_MODEL="${arg#--model=}"
         continue
     fi
     PARSED_ARGS+=("$arg")

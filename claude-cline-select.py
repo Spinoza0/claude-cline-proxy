@@ -96,7 +96,7 @@ try:
         elif ch in ("\r", "\n"):
             break
         elif ch == "\x03":
-            raise KeyboardInterrupt
+            sys.exit(130)
 finally:
     termios.tcsetattr(fd, termios.TCSADRAIN, old)
     sys.stderr.write(f"\033[{N}A\033[J")

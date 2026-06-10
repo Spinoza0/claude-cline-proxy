@@ -115,7 +115,7 @@ CLAUDE_PROXY_LOG=1 claude-cline <your prompt>
 |------|-------------|
 | `--model <name>` | Override the model name. Skips provider menu. Takes highest priority. |
 | `--provider <id>` | Use a specific provider config. Skips provider menu. Use with `--model` for full override. |
-| `--output-format stream-json` | Enables JSON streaming output. `--verbose` is auto-added (required by `claude --print`). |
+| `--output-format stream-json` | Enables JSON streaming output. `--verbose` is auto-added (required for `stream-json` output). |
 
 ## Configuration
 

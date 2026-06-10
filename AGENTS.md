@@ -53,7 +53,7 @@ When a new version of claude-cline-proxy is released:
 3. Update `homebrew-tap` formula: change the `url` tag and `sha256` checksum
 4. Compute SHA256: `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
 5. Push the formula tap: `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git add -A && git commit -m "..." && git push`
-6. Users update via: `brew upgrade spinoza0/tap/claude-cline-proxy`
+6. Users update via: `brew upgrade Spinoza0/tap/claude-cline-proxy`
 
 Note: if retagging (deleting and recreating the same tag), the SHA256 changes because the tarball content changes. Always compute SHA256 from the final tag.
 

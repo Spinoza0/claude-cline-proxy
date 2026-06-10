@@ -13,7 +13,8 @@ CLINE_API = "https://api.cline.bot/api/v1/chat/completions"
 CLINE_REFRESH_URL = "https://api.cline.bot/api/v1/auth/refresh"
 OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+LOG_LEVEL = logging.DEBUG if os.environ.get("CLAUDE_PROXY_LOG") else logging.INFO
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s")
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 logger = logging.getLogger("claude-proxy")
 
@@ -32,9 +33,10 @@ def token_valid(token: str) -> bool:
     return bool(token) and time.time() < decode_jwt_exp(token)
 
 
-def extract_valid_id_token(acc_data_str: str) -> str:
+def extract_valid_id_token(acc_data: str | dict) -> str:
     try:
-        acc_data = json.loads(acc_data_str)
+        if isinstance(acc_data, str):
+            acc_data = json.loads(acc_data)
         id_token = acc_data.get("idToken", "")
         if id_token and token_valid(id_token):
             # check if it's a WorkOS idToken (has client_id in claims)
@@ -57,10 +59,10 @@ async def refresh_and_save_tokens(providers: dict, active_id: str, s: dict) -> s
     refresh_token = s.get("auth", {}).get("refreshToken", "")
 
     secrets = json.loads(SECRETS_FILE.read_text()) if SECRETS_FILE.exists() else {}
-    acc_data_str = secrets.get("cline:clineAccountId", "")
-    if acc_data_str:
+    acc_val = secrets.get("cline:clineAccountId", "")
+    if acc_val:
         try:
-            acc_data = json.loads(acc_data_str)
+            acc_data = json.loads(acc_val) if isinstance(acc_val, str) else acc_val
             rt2 = acc_data.get("refreshToken", "")
             if rt2:
                 refresh_token = rt2
@@ -76,14 +78,21 @@ async def refresh_and_save_tokens(providers: dict, active_id: str, s: dict) -> s
         new_access = result["access_token"]
         new_refresh = result["refresh_token"]
 
+        expires_at = result.get("expires_at")
+        if isinstance(expires_at, str):
+            from datetime import datetime
+            expires_ms = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp() * 1000)
+        else:
+            expires_ms = int(expires_at) if expires_at else int((time.time() + 3600) * 1000)
+
         providers["providers"][active_id]["settings"]["auth"]["accessToken"] = "workos:" + new_access
         providers["providers"][active_id]["settings"]["auth"]["refreshToken"] = new_refresh
-        providers["providers"][active_id]["settings"]["auth"]["expiresAt"] = int((time.time() + 3600) * 1000)
+        providers["providers"][active_id]["settings"]["auth"]["expiresAt"] = expires_ms
         PROVIDERS_FILE.write_text(json.dumps(providers, indent=2))
 
-        if acc_data_str:
+        if acc_val:
             try:
-                secrets_data = json.loads(acc_data_str)
+                secrets_data = json.loads(acc_val) if isinstance(acc_val, str) else acc_val
                 secrets_data["idToken"] = new_access
                 secrets_data["refreshToken"] = new_refresh
                 secrets["cline:clineAccountId"] = json.dumps(secrets_data)
@@ -683,7 +692,6 @@ async def main():
 
     port_file = Path(os.environ.get("CLAUDE_PROXY_PORT_FILE", "/tmp/claude-proxy-port.txt"))
     port_file.write_text(str(port))
-    port_file.touch()
 
     print(f"CLINE_PROXY_PORT={port}", flush=True)
 
@@ -693,7 +701,7 @@ async def main():
         if not stop_event.is_set():
             stop_event.set()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, shutdown)
