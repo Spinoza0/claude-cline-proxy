@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+VERSION="1.4.0"
+
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
     DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
@@ -187,6 +189,11 @@ if [ -z "$CLINE_OVERRIDE_MODEL" ] && [ -z "$CLINE_OVERRIDE_PROVIDER" ] && [ -f "
     fi
 fi
 
+echo "claude-cline-proxy v$VERSION — https://github.com/Spinoza0/claude-cline-proxy"
+if command -v brew &>/dev/null; then
+    echo "To update: brew upgrade Spinoza0/tap/claude-cline-proxy"
+fi
+echo ""
 
 echo "Starting Cline proxy (Python: $PYTHON)..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
