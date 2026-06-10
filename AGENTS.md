@@ -48,12 +48,14 @@
 
 When a new version of claude-cline-proxy is released:
 
-1. Update the tag: `git tag -d v1.0.0 && git push origin --delete v1.0.0`, then `git tag v1.0.0 && git push origin v1.0.0`
-2. Update `homebrew-tap` formula: change the `url` tag and `sha256` checksum
-3. The SHA256 of the main tarball can be computed via: `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.0.0.tar.gz" | shasum -a 256`
-4. For aiohttp updates, update the resource URL and SHA from PyPI: `curl -sL "https://pypi.org/pypi/aiohttp/<version>/json" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(u['url'], u['digests']['sha256']) for u in d['urls'] if u['packagetype']=='sdist']"`
-5. Push to `github.com/Spinoza0/homebrew-tap` (the tap repo)
+1. Update `VERSION` string in `claude-cline.sh` to match the new tag
+2. Commit, tag, and push: `git add -A && git commit -m "v1.x.x" && git tag v1.x.x && git push origin v1.x.x && git push`
+3. Update `homebrew-tap` formula: change the `url` tag and `sha256` checksum
+4. Compute SHA256: `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
+5. Push the formula tap: `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git add -A && git commit -m "..." && git push`
 6. Users update via: `brew upgrade spinoza0/tap/claude-cline-proxy`
+
+Note: if retagging (deleting and recreating the same tag), the SHA256 changes because the tarball content changes. Always compute SHA256 from the final tag.
 
 ## If Tokens Expire
 1. `cline auth` — opens browser for OAuth (Google/GitHub)
