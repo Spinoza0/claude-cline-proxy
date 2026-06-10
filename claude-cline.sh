@@ -12,6 +12,27 @@ INSTANCE_ID=$$
 PORT_FILE="/tmp/claude-proxy-port-$INSTANCE_ID.txt"
 PROXY_PID=""
 
+# Parse --model <name> from args before passing rest to claude
+CLINE_OVERRIDE_MODEL=""
+PARSED_ARGS=()
+skip_next=0
+for arg in "$@"; do
+    if [ $skip_next -eq 1 ]; then
+        CLINE_OVERRIDE_MODEL="$arg"
+        skip_next=0
+        continue
+    fi
+    if [ "$arg" = "--model" ]; then
+        skip_next=1
+        continue
+    fi
+    PARSED_ARGS+=("$arg")
+done
+set -- "${PARSED_ARGS[@]}"
+if [ -n "$CLINE_OVERRIDE_MODEL" ]; then
+    export CLINE_OVERRIDE_MODEL
+fi
+
 # Check Cline is installed
 if [ ! -d "$HOME/.cline" ]; then
     echo "Error: Cline is not installed." >&2
@@ -192,8 +213,8 @@ fi
 
 echo "Proxy running on port $PORT (pid $PROXY_PID)"
 
-# read model from Cline config
-CLINE_MODEL=$($PYTHON -c "
+# read model from Cline config (or use --model override)
+CLINE_MODEL="${CLINE_OVERRIDE_MODEL:-$($PYTHON -c "
 import json, os
 try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
@@ -201,7 +222,7 @@ try:
     active = p.get('providers', {}).get(active_id, {})
     print(active.get('settings', {}).get('model', ''))
 except: pass
-" 2>/dev/null)
+" 2>/dev/null)}"
 
 # Resolve MCP config path: next to script (dev) or Homebrew etc (installed)
 MCP_SOURCE="$DIR/claude-cline-mcp.json"

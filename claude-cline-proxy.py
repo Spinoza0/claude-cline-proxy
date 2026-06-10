@@ -139,7 +139,7 @@ async def load_cline_config():
 
     s = active["settings"]
     provider = s["provider"]
-    model = s["model"]
+    model = os.environ.get("CLINE_OVERRIDE_MODEL") or s["model"]
     api_key = ""
     api_url = ""
 
