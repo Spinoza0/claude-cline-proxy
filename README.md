@@ -20,6 +20,7 @@ The proxy:
 - **Source of truth** for active provider: `CLINE_OVERRIDE_PROVIDER` env → `globalState.json` (set by IDE plugin) → `providers.json` → fallback to `lastUsedProvider`
 - **Source of truth** for model: `CLINE_OVERRIDE_MODEL` env → `globalState.json` per-mode override → provider's default model in `providers.json`
 - Ignores the model name sent by `claude` in the request body — always uses its own resolved model
+- **Context window enforcement** — reads `contextWindow` from `globalState.json` model info per-provider. If the estimated token count (input + requested output) exceeds the window, the request is rejected with a clear `400` error before being sent to the upstream API, avoiding wasteful round-trips.
 - Translates Anthropic streaming API calls (including tool calls, multi-turn, reasoning blocks) to OpenAI format
 - Handles Cline OAuth token refresh automatically via `api.cline.bot/api/v1/auth/refresh`
 - Picks a random available port in the 8000–9000 range
@@ -116,6 +117,12 @@ CLAUDE_PROXY_LOG=1 claude-cline <your prompt>
 | `--model <name>` | Override the model name. Skips provider menu. Takes highest priority. |
 | `--provider <id>` | Use a specific provider config. Skips provider menu. Use with `--model` for full override. |
 | `--output-format stream-json` | Enables JSON streaming output. `--verbose` is auto-added (required for `stream-json` output). |
+
+### Context window
+
+The proxy reads `contextWindow` from `globalState.json` (`{mode}Mode<Type>ModelInfo`) for each provider. Before forwarding a request to the upstream API, it estimates input tokens (~4 chars per token) and checks if the total (input + requested `max_tokens`) fits within the limit. If not, it returns a `400` error instructing you to use `/compact` — no wasted API round-trip.
+
+Messages that fit within the window pass through normally.
 
 ## Configuration
 

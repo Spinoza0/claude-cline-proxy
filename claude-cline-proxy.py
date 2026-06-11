@@ -221,8 +221,19 @@ async def load_cline_config():
     if not api_key and provider not in ("openai", "openai-compatible"):
         raise RuntimeError(f"No API key for provider '{provider}'")
 
-    logger.info("Config: provider=%s model=%s api=%s", provider, model, api_url.split("//")[1] if "//" in api_url else api_url)
-    return {"api_url": api_url, "api_key": api_key, "model": model, "provider": provider}
+    context_window = resolve_context_window({"provider": provider})
+
+    logger.info("Config: provider=%s model=%s api=%s ctx=%s",
+                provider, model,
+                api_url.split("//")[1] if "//" in api_url else api_url,
+                context_window or "?")
+    return {
+        "api_url": api_url,
+        "api_key": api_key,
+        "model": model,
+        "provider": provider,
+        "context_window": context_window,
+    }
 
 
 def make_msg_id():
@@ -235,6 +246,61 @@ ANTHROPIC_STOP_REASONS = {
     "tool_calls": "tool_use",
     "content_filter": "content_filter",
 }
+
+
+COUNT_WARNING = (
+    "Model context limit exceeded. "
+    "Estimated tokens exceed available context window. "
+    "Use /compact to reduce the conversation context."
+)
+
+
+def estimate_tokens(body: dict) -> int:
+    """Rough token estimate from the Anthropic request body (4 chars ≈ 1 token)."""
+    total = 0
+    system = body.get("system", "")
+    if system:
+        total += len(system) // 4
+    for m in body.get("messages", []):
+        content = m.get("content", "")
+        if isinstance(content, str):
+            total += len(content) // 4
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = (block.get("text", "") or
+                            block.get("content", "") or
+                            block.get("name", "") or "")
+                    total += len(text) // 4
+    tools = body.get("tools")
+    if tools:
+        total += len(json.dumps(tools)) // 4
+    return total
+
+
+def resolve_context_window(config: dict) -> int:
+    """Read contextWindow from globalState.json model info for the active provider type."""
+    try:
+        GS_PATH = Path.home() / ".cline" / "data" / "globalState.json"
+        if not GS_PATH.exists():
+            return 0
+        gs = json.loads(GS_PATH.read_text())
+        mode = gs.get("mode", "act").lower()
+        provider = config.get("provider", "")
+        suffix_map = {
+            "cline": "Cline",
+            "openrouter": "OpenRouter",
+            "openai": "OpenAi",
+            "openai-compatible": "OpenAi",
+            "fireworks": "Fireworks",
+        }
+        info_key = f"{mode}Mode{suffix_map.get(provider, provider.title())}ModelInfo"
+        info = gs.get(info_key, {})
+        if isinstance(info, dict):
+            return int(info.get("contextWindow", 0))
+    except Exception:
+        pass
+    return 0
 
 
 def translate_request(body: dict, config: dict) -> dict:
@@ -404,6 +470,24 @@ async def handle_messages(request: web.Request) -> web.Response:
 
     is_stream = body.get("stream", False)
     model_name = config["model"]
+
+    # Pre-check context window before forwarding
+    context_window = config.get("context_window", 0)
+    if context_window > 0:
+        estimated_input = estimate_tokens(body)
+        max_tokens = body.get("max_tokens", 4096)
+        total = estimated_input + max_tokens
+        if total > context_window:
+            msg = (
+                f"Request exceeds model context window: "
+                f"~{estimated_input} input + {max_tokens} requested = ~{total} "
+                f"(limit {context_window}). "
+                f"Use /compact to reduce context."
+            )
+            logger.warning("Context window exceeded: %s", msg)
+            return web.json_response({
+                "error": {"type": "invalid_request_error", "message": msg},
+            }, status=400)
 
     try:
         oai_body = translate_request(body, config)
@@ -680,7 +764,7 @@ async def main():
     logger.info("Config file: %s", PROVIDERS_FILE)
 
     proxy_pid = os.getpid()
-    app = web.Application()
+    app = web.Application(client_max_size=100 * 1024 * 1024)
     app.router.add_post("/v1/messages", handle_messages)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/", handle_health)
