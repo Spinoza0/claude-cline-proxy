@@ -303,10 +303,55 @@ def resolve_context_window(config: dict) -> int:
     return 0
 
 
+def translate_tool_result_content(content) -> str | list:
+    """Convert Anthropic tool_result content into OpenAI tool message content.
+
+    Anthropic tool results can be a plain string or a list of content blocks
+    (text, image, document, ...). OpenAI tool messages only accept text /
+    image_url content parts, so blocks are converted or replaced with a text
+    marker — otherwise the upstream Cline API fails to deserialize the body.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        oai_parts = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                oai_parts.append({"type": "text", "text": block.get("text", "")})
+            elif btype == "image":
+                src = block.get("source", {})
+                if isinstance(src, dict) and src.get("type") == "base64":
+                    oai_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{src.get('media_type', '')};base64,{src.get('data', '')}"},
+                    })
+            elif btype == "document":
+                src = block.get("source", {})
+                if isinstance(src, dict):
+                    media = src.get("media_type", "application/pdf")
+                    oai_parts.append({"type": "text", "text": f"[document: {media}, {len(src.get('data', ''))} bytes]"})
+                else:
+                    oai_parts.append({"type": "text", "text": "[document]"})
+            else:
+                oai_parts.append({"type": "text", "text": f"[block: {btype}]"})
+        return oai_parts if oai_parts else ""
+    return ""
+
+
 def translate_request(body: dict, config: dict) -> dict:
     messages = []
     if body.get("system"):
-        messages.append({"role": "system", "content": body["system"]})
+        system = body["system"]
+        if isinstance(system, list):
+            system = [
+                {"type": "text", "text": b.get("text", "")}
+                for b in system
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+        messages.append({"role": "system", "content": system})
 
     for m in body.get("messages", []):
         role = m["role"]
@@ -314,9 +359,7 @@ def translate_request(body: dict, config: dict) -> dict:
         if role == "assistant" and isinstance(content, list):
             text_parts = [b for b in content if b.get("type") == "text"]
             tool_parts = [b for b in content if b.get("type") == "tool_use"]
-            msg = {"role": "assistant"}
-            if text_parts:
-                msg["content"] = text_parts[0].get("text", "")
+            msg = {"role": "assistant", "content": text_parts[0].get("text", "") if text_parts else ""}
             if tool_parts:
                 msg["tool_calls"] = []
                 for tc in tool_parts:
@@ -339,13 +382,13 @@ def translate_request(body: dict, config: dict) -> dict:
                     if src.get("type") == "base64":
                         oai_parts.append({
                             "type": "image_url",
-                            "image_url": {"url": f"data:{src['media_type']};base64,{src['data']}"},
+                            "image_url": {"url": f"data:{src.get('media_type', '')};base64,{src.get('data', '')}"},
                         })
                 elif block.get("type") == "tool_result":
                     messages.append({
                         "role": "tool",
                         "tool_call_id": block.get("tool_use_id", ""),
-                        "content": block.get("content", ""),
+                        "content": translate_tool_result_content(block.get("content", "")),
                     })
             if oai_parts:
                 has_user = any(
