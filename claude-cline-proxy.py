@@ -221,18 +221,14 @@ async def load_cline_config():
     if not api_key and provider not in ("openai", "openai-compatible"):
         raise RuntimeError(f"No API key for provider '{provider}'")
 
-    context_window = resolve_context_window({"provider": provider})
-
-    logger.info("Config: provider=%s model=%s api=%s ctx=%s",
+    logger.info("Config: provider=%s model=%s api=%s",
                 provider, model,
-                api_url.split("//")[1] if "//" in api_url else api_url,
-                context_window or "?")
+                api_url.split("//")[1] if "//" in api_url else api_url)
     return {
         "api_url": api_url,
         "api_key": api_key,
         "model": model,
         "provider": provider,
-        "context_window": context_window,
     }
 
 
@@ -246,61 +242,6 @@ ANTHROPIC_STOP_REASONS = {
     "tool_calls": "tool_use",
     "content_filter": "content_filter",
 }
-
-
-COUNT_WARNING = (
-    "Model context limit exceeded. "
-    "Estimated tokens exceed available context window. "
-    "Use /compact to reduce the conversation context."
-)
-
-
-def estimate_tokens(body: dict) -> int:
-    """Rough token estimate from the Anthropic request body (4 chars ≈ 1 token)."""
-    total = 0
-    system = body.get("system", "")
-    if system:
-        total += len(system) // 4
-    for m in body.get("messages", []):
-        content = m.get("content", "")
-        if isinstance(content, str):
-            total += len(content) // 4
-        elif isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict):
-                    text = (block.get("text", "") or
-                            block.get("content", "") or
-                            block.get("name", "") or "")
-                    total += len(text) // 4
-    tools = body.get("tools")
-    if tools:
-        total += len(json.dumps(tools)) // 4
-    return total
-
-
-def resolve_context_window(config: dict) -> int:
-    """Read contextWindow from globalState.json model info for the active provider type."""
-    try:
-        GS_PATH = Path.home() / ".cline" / "data" / "globalState.json"
-        if not GS_PATH.exists():
-            return 0
-        gs = json.loads(GS_PATH.read_text())
-        mode = gs.get("mode", "act").lower()
-        provider = config.get("provider", "")
-        suffix_map = {
-            "cline": "Cline",
-            "openrouter": "OpenRouter",
-            "openai": "OpenAi",
-            "openai-compatible": "OpenAi",
-            "fireworks": "Fireworks",
-        }
-        info_key = f"{mode}Mode{suffix_map.get(provider, provider.title())}ModelInfo"
-        info = gs.get(info_key, {})
-        if isinstance(info, dict):
-            return int(info.get("contextWindow", 0))
-    except Exception:
-        pass
-    return 0
 
 
 def translate_tool_result_content(content) -> str | list:
@@ -410,6 +351,10 @@ def translate_request(body: dict, config: dict) -> dict:
         "stream": body.get("stream", False),
         "max_tokens": body.get("max_tokens", 4096),
     }
+    # Ask the upstream for a final usage chunk so we can report real
+    # input_tokens back to Claude Code (required for autocompact).
+    if body.get("stream"):
+        oai_body["stream_options"] = {"include_usage": True}
     if "temperature" in body:
         oai_body["temperature"] = body["temperature"]
     if "top_p" in body:
@@ -514,24 +459,6 @@ async def handle_messages(request: web.Request) -> web.Response:
     is_stream = body.get("stream", False)
     model_name = config["model"]
 
-    # Pre-check context window before forwarding
-    context_window = config.get("context_window", 0)
-    if context_window > 0:
-        estimated_input = estimate_tokens(body)
-        max_tokens = body.get("max_tokens", 4096)
-        total = estimated_input + max_tokens
-        if total > context_window:
-            msg = (
-                f"Request exceeds model context window: "
-                f"~{estimated_input} input + {max_tokens} requested = ~{total} "
-                f"(limit {context_window}). "
-                f"Use /compact to reduce context."
-            )
-            logger.warning("Context window exceeded: %s", msg)
-            return web.json_response({
-                "error": {"type": "invalid_request_error", "message": msg},
-            }, status=400)
-
     try:
         oai_body = translate_request(body, config)
     except Exception as e:
@@ -604,6 +531,8 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
     current_tool_calls: dict[int, dict] = {}
     text_started = False
     thinking_started = False
+    final_finish = None
+    last_usage: dict = {}
 
     try:
         async for line in upstream_resp.content:
@@ -618,6 +547,13 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                 chunk = json.loads(raw)
             except json.JSONDecodeError:
                 continue
+
+            # Some providers send token usage in a dedicated choices:[] chunk
+            # (when stream_options.include_usage is enabled). Capture it even
+            # when there are no choices so Claude Code sees real input_tokens
+            # and can trigger autocompact on its own.
+            if "usage" in chunk:
+                last_usage = chunk.get("usage", {})
 
             choices = chunk.get("choices", [])
             if not choices:
@@ -732,25 +668,29 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                     }))
                 current_tool_calls.clear()
 
-                usage = chunk.get("usage", {})
-                await emit(send_anthropic_event("message_delta", {
-                    "type": "message_delta",
-                    "delta": {
-                        "stop_reason": ANTHROPIC_STOP_REASONS.get(finish, "end_turn"),
-                        "stop_sequence": None,
-                    },
-                    "usage": {
-                        "output_tokens": usage.get("completion_tokens", 0),
-                        "input_tokens": usage.get("prompt_tokens", 0),
-                    },
-                }))
-                await emit(send_anthropic_event("message_stop", {"type": "message_stop"}))
+                final_finish = finish
 
     except (ConnectionResetError, asyncio.CancelledError):
         logger.info("Client disconnected")
     except Exception as e:
         logger.error("Stream error: %s", e)
     finally:
+        # Emit the final message_delta with the real (accumulated) usage so
+        # Claude Code tracks context usage and triggers autocompact.
+        if final_finish is not None:
+            await emit(send_anthropic_event("message_delta", {
+                "type": "message_delta",
+                "delta": {
+                    "stop_reason": ANTHROPIC_STOP_REASONS.get(final_finish, "end_turn"),
+                    "stop_sequence": None,
+                },
+                "usage": {
+                    "output_tokens": last_usage.get("completion_tokens", 0),
+                    "input_tokens": last_usage.get("prompt_tokens", 0),
+                },
+            }))
+            await emit(send_anthropic_event("message_stop", {"type": "message_stop"}))
+
         try:
             await resp.write_eof()
         except (ConnectionResetError, ConnectionError):

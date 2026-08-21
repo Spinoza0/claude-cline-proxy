@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.6.1"
+VERSION="1.6.2"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -325,6 +325,48 @@ with open('$MCP_CONFIG', 'w') as f:
 "
 
 echo "Starting Claude Code (model: ${CLINE_MODEL:-from Cline})..."
+
+# Pass the real context window from Cline settings to Claude Code so its
+# autocompact triggers at the correct threshold. The Anthropic Messages API
+# has no context-window field, but Claude Code reads it from
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS.
+CLINE_CTX=$($PYTHON -c "
+import json, os
+try:
+    gs_path = os.path.expanduser('~/.cline/data/globalState.json')
+    p_path = os.path.expanduser('~/.cline/data/settings/providers.json')
+    if os.path.exists(gs_path):
+        gs = json.load(open(gs_path))
+    else:
+        gs = {}
+    mode = gs.get('mode', 'act').lower()
+    suffix_map = {'cline': 'Cline', 'openrouter': 'OpenRouter', 'openai': 'OpenAi',
+                  'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
+    provider = os.environ.get('CLINE_OVERRIDE_PROVIDER') or ''
+    if not provider:
+        provider = gs.get(f'{mode}ModeApiProvider', '')
+    if not provider and os.path.exists(p_path):
+        try:
+            p = json.load(open(p_path))
+            provider = p.get('lastUsedProvider', 'cline')
+        except Exception:
+            pass
+    if not provider:
+        provider = 'cline'
+    key = f'{mode}Mode{suffix_map.get(provider, provider.title())}ModelInfo'
+    info = gs.get(key, {})
+    if isinstance(info, dict):
+        cw = int(info.get('contextWindow', 0))
+        if cw > 0:
+            print(cw)
+except Exception:
+    pass
+" 2>/dev/null)
+
+if [ -n "$CLINE_CTX" ]; then
+    export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$CLINE_CTX"
+    echo "Context window from Cline settings: $CLINE_CTX tokens"
+fi
 
 export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
 export ANTHROPIC_API_KEY="sk-ant-dummy"
