@@ -44,18 +44,24 @@
 - Streaming (SSE → Anthropic format) supported
 - Tool calls and multi-turn work
 
-## Updating the Homebrew Formula
+## Releasing a New Version
 
-When a new version of claude-cline-proxy is released:
+Releasing is a single end-to-end flow. Do **all** of the following in order — never stop at just a tag, otherwise the GitHub Releases page and Homebrew users won't see the new version:
 
-1. Update `VERSION` string in `claude-cline.sh` to match the new tag
-2. Commit, tag, and push: `git add -A && git commit -m "v1.x.x" && git tag v1.x.x && git push origin v1.x.x && git push`
-3. Update `homebrew-tap` formula: change the `url` tag and `sha256` checksum
-4. Compute SHA256: `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
-5. Push the formula tap: `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git add -A && git commit -m "..." && git push`
-6. Users update via: `brew upgrade Spinoza0/tap/claude-cline-proxy`
+1. Update `VERSION` string in `claude-cline.sh` to match the new tag.
+2. Commit, tag, and push the tag + branch:
+   `git add README.md claude-cline-proxy.py claude-cline.sh && git commit -m "v1.x.x" && git tag v1.x.x && git push origin v1.x.x && git push`
+3. Compute the tarball SHA256 (after the tag is pushed):
+   `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
+4. Create the **GitHub Release** for the tag (a tag alone does NOT appear on the Releases page):
+   `gh release create v1.x.x --repo Spinoza0/claude-cline-proxy --title "v1.x.x" --notes "$(cat <<'EOF' ... EOF)"`
+   Write concise release notes describing the user-facing changes.
+5. Update the `homebrew-tap` formula: bump the `url` tag to `v1.x.x.tar.gz` and the `sha256` to the value from step 3.
+6. Push the formula tap:
+   `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git add -A && git commit -m "claude-cline-proxy v1.x.x" && git push`
+7. Users update via: `brew upgrade Spinoza0/tap/claude-cline-proxy`
 
-Note: if retagging (deleting and recreating the same tag), the SHA256 changes because the tarball content changes. Always compute SHA256 from the final tag.
+Note: if retagging (deleting and recreating the same tag), the SHA256 changes because the tarball content changes. Always compute SHA256 from the final tag, and recreate the GitHub Release (delete + re-create) since a release is bound to the tag.
 
 ## If Tokens Expire
 1. `cline auth` — opens browser for OAuth (Google/GitHub)
