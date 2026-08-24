@@ -13,6 +13,20 @@ CLINE_API = "https://api.cline.bot/api/v1/chat/completions"
 CLINE_REFRESH_URL = "https://api.cline.bot/api/v1/auth/refresh"
 OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions"
 
+# Input-context guard: if the estimated input token count exceeds this budget
+# the proxy drops the oldest conversation units to fit. Set
+# CLINE_MAX_INPUT_TOKENS=0 to disable truncation entirely.
+MAX_INPUT_TOKENS = int(os.environ.get("CLINE_MAX_INPUT_TOKENS", "250000"))
+# Hard context limit of the upstream model. Used to also cap
+# (input + completion) so the request never exceeds the model window even
+# when the caller requests a large max_tokens.
+MODEL_MAX_TOKENS = int(os.environ.get("CLINE_MODEL_MAX_TOKENS", "262144"))
+# Safety margin (tokens) kept free below the hard limit.
+TRUNC_MARGIN = 1024
+# Rough chars->tokens divisor. Conservative (3) so we never *under*estimate
+# and risk exceeding the real limit.
+TOKEN_DIVISOR = 3
+
 LOG_LEVEL = logging.DEBUG if os.environ.get("CLAUDE_PROXY_LOG") else logging.INFO
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s")
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
@@ -221,6 +235,14 @@ async def load_cline_config():
     if not api_key and provider not in ("openai", "openai-compatible"):
         raise RuntimeError(f"No API key for provider '{provider}'")
 
+    # Context-guard limits. Env override (CLINE_MAX_INPUT_TOKENS /
+    # CLINE_MODEL_MAX_TOKENS) takes priority, otherwise read from the active
+    # provider settings (Cline config), falling back to built-in defaults.
+    max_input_raw = os.environ.get("CLINE_MAX_INPUT_TOKENS")
+    max_input_tokens = int(max_input_raw) if max_input_raw else int(s.get("maxInputTokens", MAX_INPUT_TOKENS))
+    model_max_raw = os.environ.get("CLINE_MODEL_MAX_TOKENS")
+    model_max_tokens = int(model_max_raw) if model_max_raw else int(s.get("modelMaxTokens", MODEL_MAX_TOKENS))
+
     logger.info("Config: provider=%s model=%s api=%s",
                 provider, model,
                 api_url.split("//")[1] if "//" in api_url else api_url)
@@ -229,6 +251,8 @@ async def load_cline_config():
         "api_key": api_key,
         "model": model,
         "provider": provider,
+        "max_input_tokens": max_input_tokens,
+        "model_max_tokens": model_max_tokens,
     }
 
 
@@ -282,7 +306,127 @@ def translate_tool_result_content(content) -> str | list:
     return ""
 
 
+def _estimate_tokens(text_or_obj) -> int:
+    """Rough token estimate. Conservative divisor so we never undercount."""
+    if text_or_obj is None:
+        return 0
+    if isinstance(text_or_obj, str):
+        s = text_or_obj
+    else:
+        try:
+            s = json.dumps(text_or_obj, ensure_ascii=False)
+        except Exception:
+            s = str(text_or_obj)
+    return max(1, len(s) // TOKEN_DIVISOR)
+
+
+def _tool_use_ids(msg: dict) -> list:
+    ids = []
+    if msg.get("role") == "assistant":
+        content = msg.get("content")
+        if isinstance(content, list):
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    ids.append(b.get("id"))
+    return ids
+
+
+def _tool_result_ids(msg: dict) -> list:
+    ids = []
+    if msg.get("role") == "user":
+        content = msg.get("content")
+        if isinstance(content, list):
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    ids.append(b.get("tool_use_id"))
+    return ids
+
+
+def _build_units(messages: list) -> list:
+    """Group messages into units so tool_use/tool_result pairs stay together.
+
+    A unit is an assistant message containing tool_use plus the immediately
+    following user message(s) that carry the matching tool_result blocks.
+    Keeping/dropping a unit as a whole guarantees we never split a pair.
+    """
+    units = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        msg = messages[i]
+        tu = _tool_use_ids(msg)
+        if tu:
+            unit = [i]
+            used = set(tu)
+            j = i + 1
+            while j < n:
+                tr = _tool_result_ids(messages[j])
+                if tr and (set(tr) & used):
+                    unit.append(j)
+                    used |= set(tr)
+                    j += 1
+                else:
+                    break
+            units.append(unit)
+            i = j
+        else:
+            units.append([i])
+            i += 1
+    return units
+
+
+def _truncate_messages(body: dict, max_input_tokens: int, model_max_tokens: int):
+    """Drop oldest conversation units so the input fits the token budget.
+
+    Returns (dropped_message_count, estimated_total_tokens) for logging.
+    """
+    system = body.get("system")
+    sys_tok = _estimate_tokens(system)
+    messages = body.get("messages", [])
+    if not messages:
+        return 0, sys_tok
+
+    max_tokens_field = body.get("max_tokens", 4096)
+    avail = min(max_input_tokens, model_max_tokens - max_tokens_field - TRUNC_MARGIN)
+    if avail <= 0:
+        avail = max_input_tokens
+
+    units = _build_units(messages)
+    unit_tok = [sum(_estimate_tokens(messages[idx]) for idx in u) for u in units]
+
+    keep_units = []
+    total = 0
+    for u, tok in reversed(list(zip(units, unit_tok))):
+        if total + tok <= avail:
+            keep_units.append(u)
+            total += tok
+        else:
+            break
+
+    if not keep_units:
+        # Never emit an empty request: keep at least the newest unit.
+        keep_units = [units[-1]]
+
+    keep_units.reverse()
+    kept_set = {idx for u in keep_units for idx in u}
+    new_messages = [messages[i] for i in range(len(messages)) if i in kept_set]
+
+    dropped = len(messages) - len(new_messages)
+    body["messages"] = new_messages
+    return dropped, total + sys_tok
+
+
 def translate_request(body: dict, config: dict) -> dict:
+    max_input_tokens = config.get("max_input_tokens", MAX_INPUT_TOKENS)
+    model_max_tokens = config.get("model_max_tokens", MODEL_MAX_TOKENS)
+    if max_input_tokens and max_input_tokens > 0:
+        dropped, est_total = _truncate_messages(body, max_input_tokens, model_max_tokens)
+        if dropped:
+            logger.warning(
+                "Context guard: dropped %d oldest message(s) (est. %d input tokens) to fit model limit %d",
+                dropped, est_total, model_max_tokens,
+            )
+
     messages = []
     if body.get("system"):
         system = body["system"]
