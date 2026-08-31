@@ -163,8 +163,8 @@ All configuration comes from Cline files — no secrets or models are hardcoded.
 | `~/.cline/data/globalState.json` | **Primary**: active provider ID (`{mode}ModeApiProvider`) and per-mode model overrides (`{mode}Mode<Type>ModelId`) |
 | `~/.cline/data/settings/providers.json` | **Secondary**: API keys, base URLs, provider types, default models, context-guard limits (`maxInputTokens`, `modelMaxTokens`) |
 | `~/.cline/data/secrets.json` | OAuth idToken and refreshToken (under `cline:clineAccountId`) |
-| `~/.cline/data/settings/cline_mcp_settings.json` | Tavily MCP key (optional, merged if present) |
-| `claude-cline-mcp.json` | Local MCP overrides (starts empty, add your custom MCPs here) |
+| `~/.cline/data/settings/cline_mcp_settings.json` | Cline MCP servers (merged automatically) |
+| `claude-cline-mcp.json` | Local MCP overrides (starts empty; takes precedence over Cline MCP servers) |
 
 ### Token refresh
 
@@ -176,10 +176,51 @@ cline auth
 
 ## WebSearch Limitation
 
-Claude Code's built-in `WebSearch` tool will **not work** through this proxy — it is an Anthropic-only feature that requires a direct connection to the Anthropic API. If you need internet search capabilities:
+Claude Code's built-in `WebSearch` tool will **not work** through this proxy — it is an Anthropic-only feature that requires a direct connection to the Anthropic API. If you need internet search capabilities, add a web-search MCP server in your Cline MCP settings or in `claude-cline-mcp.json`.
 
-1. **Tavily via Cline (automatic)** — configure Tavily as an MCP server in your Cline settings. The launcher (`claude-cline.sh`) merges it automatically.
-2. **Any other search MCP** — add your preferred web search tool (e.g. Brave Search, Exa) as an MCP server in `claude-cline-mcp.json`.
+## MCP server configuration
+
+The launcher builds a single MCP config for Claude Code by merging two sources:
+
+1. **`claude-cline-mcp.json`** (or the file pointed to by `CLAUDE_CLINE_MCP`) — local overrides.
+2. **`~/.cline/data/settings/cline_mcp_settings.json`** — MCP servers configured in Cline.
+
+### Merge rules
+
+- **All** MCP servers from Cline settings are merged.
+- **`claude-cline-mcp.json` takes precedence** — if a server is defined in both places, the local override wins.
+- If neither file exists or neither defines any servers, the resulting config is empty and no MCP servers are loaded.
+
+### Example
+
+`claude-cline-mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"]
+    }
+  }
+}
+```
+
+Cline `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "BRAVE_API_KEY": "..." }
+    }
+  }
+}
+```
+
+Result passed to Claude Code: both `my-local-server` and `brave-search` are available. If both files defined `brave-search`, the version from `claude-cline-mcp.json` would be used.
 
 ## Files
 
@@ -188,5 +229,5 @@ Claude Code's built-in `WebSearch` tool will **not work** through this proxy —
 | `claude-cline-proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management, config resolution from globalState + providers.json |
 | `claude-cline.sh` | Launcher: starts proxy, parses `--model`/`--provider`, auto-adds `--verbose` for stream-json, runs claude |
 | `claude-cline-select.py` | Interactive TUI provider selection menu with 5s timeout and globalState-aware defaults |
-| `claude-cline-mcp.json` | MCP server definitions (user-editable; Tavily merged from Cline automatically) |
+| `claude-cline-mcp.json` | MCP server definitions (user-editable; Cline MCP servers merged automatically, local overrides take precedence) |
 | `AGENTS.md` | Internal architecture notes, auth flow details |

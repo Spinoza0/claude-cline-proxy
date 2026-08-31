@@ -306,17 +306,16 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     mcp = {'mcpServers': {}}
 
-# overlay tavily from Cline config if present
+# overlay all MCP servers from Cline config if present.
+# claude-cline-mcp.json (or CLAUDE_CLINE_MCP) takes precedence over Cline.
 cline_path = os.path.expanduser('$HOME/.cline/data/settings/cline_mcp_settings.json')
 try:
     with open(cline_path) as f:
         cline_mcp = json.load(f)
-    tavily = cline_mcp.get('mcpServers', {}).get('tavily')
-    if tavily:
-        mcp.setdefault('mcpServers', {})['tavily'] = {
-            'command': tavily['command'],
-            'env': tavily.get('env', {}),
-        }
+    cline_servers = cline_mcp.get('mcpServers', {})
+    if cline_servers:
+        mcp.setdefault('mcpServers', {})
+        mcp['mcpServers'] = {**cline_servers, **mcp['mcpServers']}
 except (FileNotFoundError, json.JSONDecodeError):
     pass
 
