@@ -726,16 +726,25 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
     stream_errored = False
 
     try:
+        stream_chunk_count = 0
+        last_chunk_time = time.time()
         async for line in upstream_resp.content:
+            now = time.time()
             line = line.decode().strip()
             if not line:
                 continue
             if line == "data: [DONE]":
+                logger.debug("SSE: received [DONE] after %d chunks, %.1fs since last", stream_chunk_count, now - last_chunk_time)
                 break
             if not line.startswith("data: "):
                 continue
 
             raw = line[6:]
+            stream_chunk_count += 1
+            elapsed = now - last_chunk_time
+            if elapsed > 10:
+                logger.warning("SSE: gap %.1fs between chunks (chunk #%d)", elapsed, stream_chunk_count)
+            last_chunk_time = now
             try:
                 chunk = json.loads(raw)
             except json.JSONDecodeError:
@@ -891,6 +900,10 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
             await keepalive_task
         except Exception:
             pass
+
+        if final_finish is None and not stream_errored:
+            logger.warning("SSE stream ended without finish_reason (%d chunks, last chunk %.1fs ago)",
+                           stream_chunk_count, time.time() - last_chunk_time)
 
         # Emit the final message_delta with the real (accumulated) usage so
         # Claude Code tracks context usage and triggers autocompact.
