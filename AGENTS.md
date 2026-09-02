@@ -54,11 +54,24 @@ Releasing is a single end-to-end flow. Do **all** of the following in order — 
 3. Compute the tarball SHA256 (after the tag is pushed):
    `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
 4. Create the **GitHub Release** for the tag (a tag alone does NOT appear on the Releases page):
-   `gh release create v1.x.x --repo Spinoza0/claude-cline-proxy --title "v1.x.x" --notes "$(cat <<'EOF' ... EOF)"`
-   Write concise release notes describing the user-facing changes.
+   Use a heredoc and `--notes-file` so GitHub renders line breaks correctly. Do **not** pass `--notes` with literal `\n` sequences — they will appear as `\n` on the release page.
+
+   ```bash
+   cat > /tmp/release-notes-v1.x.x.md <<'EOF'
+   Describe user-facing changes here.
+
+   - Change one
+   - Change two
+   EOF
+   gh release create v1.x.x \
+     --repo Spinoza0/claude-cline-proxy \
+     --title "v1.x.x" \
+     --notes-file /tmp/release-notes-v1.x.x.md
+   rm -f /tmp/release-notes-v1.x.x.md
+   ```
 5. Update the `homebrew-tap` formula: bump the `url` tag to `v1.x.x.tar.gz` and the `sha256` to the value from step 3.
-6. Push the formula tap:
-   `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git add -A && git commit -m "claude-cline-proxy v1.x.x" && git push`
+6. Push the formula tap. Stage the formula file explicitly (avoid `git add -A`, which may be blocked by git hooks):
+   `cd /opt/homebrew/Library/Taps/spinoza0/homebrew-tap && git diff && git add Formula/claude-cline-proxy.rb && git commit -m "claude-cline-proxy v1.x.x" && git push`
 7. Users update via: `brew upgrade Spinoza0/tap/claude-cline-proxy`
 
 Note: if retagging (deleting and recreating the same tag), the SHA256 changes because the tarball content changes. Always compute SHA256 from the final tag, and recreate the GitHub Release (delete + re-create) since a release is bound to the tag.
