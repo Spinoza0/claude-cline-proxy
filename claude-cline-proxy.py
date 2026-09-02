@@ -662,6 +662,18 @@ async def _emit_stream_error(resp: web.StreamResponse, message: str):
         pass
 
 
+async def _keepalive_writer(resp: web.StreamResponse, stop: asyncio.Event):
+    """Send SSE comment pings so Claude Code's connection stays alive while the upstream model thinks."""
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            try:
+                await resp.write(b": keepalive\n\n")
+            except Exception:
+                break
+
+
 async def handle_stream(request: web.Request, config: dict, oai_body: dict, model_name: str) -> web.StreamResponse:
     try:
         upstream_resp, sess = await stream_openai(config, oai_body)
@@ -682,6 +694,9 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
 
     msg_id = make_msg_id()
     cb_index = [0]
+
+    stop_keepalive = asyncio.Event()
+    keepalive_task = asyncio.create_task(_keepalive_writer(resp, stop_keepalive))
 
     def send_anthropic_event(event_type: str, data: dict):
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
@@ -708,6 +723,7 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
     thinking_started = False
     final_finish = None
     last_usage: dict = {}
+    stream_errored = False
 
     try:
         async for line in upstream_resp.content:
@@ -848,25 +864,39 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
 
                 final_finish = finish
 
-    except (ConnectionResetError, asyncio.CancelledError):
-        logger.info("Client disconnected")
+    except (ConnectionResetError, asyncio.CancelledError) as e:
+        logger.info("Connection reset: %s", e)
+        stream_errored = True
+        await _emit_stream_error(resp, f"Connection reset: {e}")
     except aiohttp.ClientPayloadError as e:
         logger.error("Upstream SSE payload error: %s", e)
+        stream_errored = True
         await _emit_stream_error(resp, f"Upstream interrupted: {e}")
     except aiohttp.ClientConnectionError as e:
         logger.error("Upstream connection error: %s", e)
+        stream_errored = True
         await _emit_stream_error(resp, f"Connection lost: {e}")
     except aiohttp.ServerTimeoutError as e:
         logger.error("Upstream SSE timeout: %s", e)
+        stream_errored = True
         await _emit_stream_error(resp, f"Upstream timeout: {e}")
     except Exception as e:
         logger.error("Stream error: %s", e)
         logger.exception(e)
+        stream_errored = True
         await _emit_stream_error(resp, f"Stream error: {e}")
     finally:
+        stop_keepalive.set()
+        try:
+            await keepalive_task
+        except Exception:
+            pass
+
         # Emit the final message_delta with the real (accumulated) usage so
         # Claude Code tracks context usage and triggers autocompact.
-        if final_finish is not None:
+        # Skip when the stream errored — an error event was already sent and
+        # sending message_stop would confuse Claude Code.
+        if final_finish is not None and not stream_errored:
             await emit(send_anthropic_event("message_delta", {
                 "type": "message_delta",
                 "delta": {
