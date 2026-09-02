@@ -413,7 +413,10 @@ def _truncate_messages(body: dict, max_input_tokens: int, model_max_tokens: int)
 
     dropped = len(messages) - len(new_messages)
     body["messages"] = new_messages
-    return dropped, total + sys_tok
+    final_tok = total + sys_tok
+    if dropped:
+        logger.info("Context guard: kept %d messages (est. %d tokens), dropped %d", len(new_messages), final_tok, dropped)
+    return dropped, final_tok
 
 
 def translate_request(body: dict, config: dict) -> dict:
@@ -589,7 +592,7 @@ async def stream_openai(config: dict, oai_body: dict) -> tuple[aiohttp.ClientRes
         total=None,
         connect=30,
         sock_connect=30,
-        sock_read=300,
+        sock_read=600,
     )
     sess = aiohttp.ClientSession(connector=connector, timeout=timeout)
     try:
@@ -648,6 +651,15 @@ async def handle_non_stream(config: dict, oai_body: dict, model_name: str) -> we
         return web.json_response({"error": {"type": "api_error", "message": str(e)}}, status=500)
 
     return web.json_response(anth_response, headers={"x-request-id": anth_response["id"]})
+
+
+async def _emit_stream_error(resp: web.StreamResponse, message: str):
+    """Send an Anthropic error event so Claude Code handles the failure gracefully."""
+    try:
+        event = f"event: error\ndata: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': message}})}\n\n"
+        await resp.write(event.encode())
+    except Exception:
+        pass
 
 
 async def handle_stream(request: web.Request, config: dict, oai_body: dict, model_name: str) -> web.StreamResponse:
@@ -840,13 +852,17 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
         logger.info("Client disconnected")
     except aiohttp.ClientPayloadError as e:
         logger.error("Upstream SSE payload error: %s", e)
+        await _emit_stream_error(resp, f"Upstream interrupted: {e}")
     except aiohttp.ClientConnectionError as e:
         logger.error("Upstream connection error: %s", e)
+        await _emit_stream_error(resp, f"Connection lost: {e}")
     except aiohttp.ServerTimeoutError as e:
         logger.error("Upstream SSE timeout: %s", e)
+        await _emit_stream_error(resp, f"Upstream timeout: {e}")
     except Exception as e:
         logger.error("Stream error: %s", e)
         logger.exception(e)
+        await _emit_stream_error(resp, f"Stream error: {e}")
     finally:
         # Emit the final message_delta with the real (accumulated) usage so
         # Claude Code tracks context usage and triggers autocompact.
