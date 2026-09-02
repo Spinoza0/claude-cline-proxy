@@ -557,28 +557,48 @@ def build_anthropic_response(openai_body: dict, config: dict, model_name: str = 
 async def call_openai(config: dict, oai_body: dict) -> dict:
     headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
 
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(config["api_url"], json=oai_body, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+    timeout = aiohttp.ClientTimeout(
+        total=None,
+        connect=30,
+        sock_connect=30,
+        sock_read=120,
+    )
+    async with aiohttp.ClientSession(timeout=timeout) as sess:
+        async with sess.post(config["api_url"], json=oai_body, headers=headers, timeout=timeout) as resp:
             if resp.status != 200:
                 err = await resp.text()
-                raise RuntimeError(f"API error {resp.status}: {err}")
+                raise RuntimeError(f"API error {resp.status}: {err[:500]}")
             result = await resp.json()
             if isinstance(result, dict) and "data" in result:
                 result = result["data"]
             return result
 
 
-async def stream_openai(config: dict, oai_body: dict) -> aiohttp.ClientResponse:
+async def stream_openai(config: dict, oai_body: dict) -> tuple[aiohttp.ClientResponse, aiohttp.ClientSession]:
     headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
 
-    conn = aiohttp.TCPConnector()
-    sess = aiohttp.ClientSession(connector=conn)
+    # SSE streams should use short-lived connections. Some openai-compatible
+    # providers reset idle keep-alive sockets aggressively, which leads to
+    # "Tool use interrupted" errors in Claude Code. Disable connection reuse
+    # for streaming and use per-phase timeouts instead of a single total limit.
+    connector = aiohttp.TCPConnector(
+        force_close=True,
+        enable_cleanup_closed=True,
+        keepalive_timeout=5,
+    )
+    timeout = aiohttp.ClientTimeout(
+        total=None,
+        connect=30,
+        sock_connect=30,
+        sock_read=300,
+    )
+    sess = aiohttp.ClientSession(connector=connector, timeout=timeout)
     try:
-        resp = await sess.post(config["api_url"], json=oai_body, headers=headers, timeout=aiohttp.ClientTimeout(total=300))
+        resp = await sess.post(config["api_url"], json=oai_body, headers=headers, timeout=timeout)
         if resp.status != 200:
             err = await resp.text()
             await sess.close()
-            raise RuntimeError(f"API error {resp.status}: {err}")
+            raise RuntimeError(f"API error {resp.status}: {err[:500]}")
         return resp, sess
     except Exception:
         await sess.close()
@@ -681,8 +701,10 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
     try:
         async for line in upstream_resp.content:
             line = line.decode().strip()
-            if not line or line == "data: [DONE]":
+            if not line:
                 continue
+            if line == "data: [DONE]":
+                break
             if not line.startswith("data: "):
                 continue
 
@@ -690,6 +712,7 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
             try:
                 chunk = json.loads(raw)
             except json.JSONDecodeError:
+                logger.warning("Ignoring malformed SSE chunk: %s", raw[:200])
                 continue
 
             # Some providers send token usage in a dedicated choices:[] chunk
@@ -816,8 +839,15 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
 
     except (ConnectionResetError, asyncio.CancelledError):
         logger.info("Client disconnected")
+    except aiohttp.ClientPayloadError as e:
+        logger.error("Upstream SSE payload error: %s", e)
+    except aiohttp.ClientConnectionError as e:
+        logger.error("Upstream connection error: %s", e)
+    except aiohttp.ServerTimeoutError as e:
+        logger.error("Upstream SSE timeout: %s", e)
     except Exception as e:
         logger.error("Stream error: %s", e)
+        logger.exception(e)
     finally:
         # Emit the final message_delta with the real (accumulated) usage so
         # Claude Code tracks context usage and triggers autocompact.
