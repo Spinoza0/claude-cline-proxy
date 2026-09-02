@@ -765,6 +765,14 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
             delta = choices[0].get("delta") or {}
             finish = choices[0].get("finish_reason")
 
+            tc_in_chunk = delta.get("tool_calls")
+            if finish or tc_in_chunk:
+                logger.debug("SSE chunk: finish=%s tool_calls=%s content=%s reasoning=%s",
+                             finish,
+                             [tc.get("function", {}).get("name") for tc in tc_in_chunk] if tc_in_chunk else None,
+                             bool(delta.get("content")),
+                             bool(delta.get("reasoning")))
+
             reasoning = delta.get("reasoning", "")
             if reasoning:
                 if not thinking_started:
@@ -872,6 +880,10 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                 current_tool_calls.clear()
 
                 final_finish = finish
+
+        logger.debug("SSE stream loop done: final_finish=%s chunks=%s thinking=%s text=%s tool_calls=%s",
+                     final_finish, stream_chunk_count, thinking_started, text_started,
+                     list(current_tool_calls.keys()) if current_tool_calls else None)
 
     except (ConnectionResetError, asyncio.CancelledError) as e:
         logger.info("Connection reset: %s", e)
