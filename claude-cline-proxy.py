@@ -584,7 +584,6 @@ async def stream_openai(config: dict, oai_body: dict) -> tuple[aiohttp.ClientRes
     connector = aiohttp.TCPConnector(
         force_close=True,
         enable_cleanup_closed=True,
-        keepalive_timeout=5,
     )
     timeout = aiohttp.ClientTimeout(
         total=None,
