@@ -3,12 +3,24 @@ import json, os, sys, tty, termios, select, time
 
 PROVIDERS_FILE = os.path.expanduser("~/.cline/data/settings/providers.json")
 DEFAULT = "cline"
+# Providers that work without an explicit apiKey in settings
+NO_KEY_OK = {"cline", "ollama"}
 
 GLOBAL_STATE_FILE = os.path.expanduser("~/.cline/data/globalState.json")
 
 try:
     p = json.load(open(PROVIDERS_FILE))
     providers = p.get("providers", {})
+
+    # Filter: keep only providers that have an apiKey (or don't need one)
+    def _has_key(pid):
+        if pid in NO_KEY_OK:
+            return True
+        s = providers.get(pid, {}).get("settings", {})
+        return bool(s.get("apiKey"))
+
+    pids = [pid for pid in providers if _has_key(pid)]
+
     # Active provider: globalState → lastUsedProvider → default
     active_id = p.get("lastUsedProvider", DEFAULT)
     if os.path.exists(GLOBAL_STATE_FILE):
@@ -20,13 +32,20 @@ try:
                 active_id = gs_pid
         except Exception:
             pass
+
+    # If active provider was filtered out, fall back to cline or first available
+    if active_id not in pids:
+        active_id = DEFAULT if DEFAULT in pids else (pids[0] if pids else DEFAULT)
 except Exception:
     print(DEFAULT, end="")
     sys.exit(0)
 
-pids = list(providers.keys())
+if not pids:
+    print(DEFAULT, end="")
+    sys.exit(0)
+
 if len(pids) <= 1 or not sys.stdin.isatty():
-    print(pids[0] if pids else DEFAULT, end="")
+    print(pids[0], end="")
     sys.exit(0)
 
 # Read globalState to get per-mode model overrides (set by IDE plugin)
@@ -36,7 +55,8 @@ if os.path.exists(GLOBAL_STATE_FILE):
         gs = json.load(open(GLOBAL_STATE_FILE))
         mode = gs.get("mode", "act").lower()
         key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAiCompatible", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
-        for pid, pv in providers.items():
+        for pid in pids:
+            pv = providers[pid]
             ptype = pv.get("settings", {}).get("provider", "")
             k = f"{mode}Mode{key_suffix_map.get(ptype, ptype.title())}ModelId"
             v = gs.get(k)

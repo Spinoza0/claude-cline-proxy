@@ -193,7 +193,8 @@ async def load_cline_config():
     # alternative for local/internal models.
     s = active["settings"]
     provider = s.get("provider", "")
-    needs_key = provider in ("openai", "openrouter", "anthropic")
+    NO_KEY_OK = {"cline", "ollama"}
+    needs_key = provider not in NO_KEY_OK
     has_key = bool(s.get("apiKey"))
     if needs_key and not has_key and active_id != "openai-compatible":
         fallback = providers["providers"].get("openai-compatible")
