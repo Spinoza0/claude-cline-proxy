@@ -148,6 +148,33 @@ Set `CLINE_MAX_INPUT_TOKENS=0` (or `maxInputTokens: 0`) to turn the guard off. W
 
 When a turn is dropped, Claude Code's own `/compact` is still the better long-term fix for very long sessions — the guard is a safety net that keeps requests from failing outright.
 
+### Tool-call retry
+
+Some OpenAI-compatible providers return malformed tool calls (empty `input` / empty `arguments`) when the context is large. Claude Code shows `[Tool use interrupted]` in this case.
+
+The proxy detects this automatically and retries the request with a reduced context window:
+
+1. All SSE events are **buffered internally** (nothing is sent to Claude Code yet).
+2. After the upstream stream finishes, tool calls are validated.
+3. If tool calls are malformed → the request is retried with fewer messages.
+4. Only valid responses are flushed to Claude Code.
+
+**Configuration:**
+
+| Env override | Default | Meaning |
+|--------------|---------|---------|
+| `CLINE_RETRY_REDUCTION_FACTOR` | `0.9` | Fraction of the original context budget used on retry. `0.9` = drop ~10 % of oldest messages. Set to `0` to disable retries. |
+
+Example:
+
+```bash
+# Retry with 25 % fewer messages (aggressive)
+CLINE_RETRY_REDUCTION_FACTOR=0.75 claude-cline -p "your prompt"
+
+# Disable retries entirely
+CLINE_RETRY_REDUCTION_FACTOR=0 claude-cline -p "your prompt"
+```
+
 ## Configuration
 
 All configuration comes from Cline files — no secrets or models are hardcoded.

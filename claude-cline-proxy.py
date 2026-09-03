@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, os, sys, signal, random, asyncio, logging, uuid, time, base64
+import json, os, sys, signal, random, asyncio, logging, uuid, time, base64, copy
 from pathlib import Path
 import aiohttp
 from aiohttp import web
@@ -26,6 +26,12 @@ TRUNC_MARGIN = 1024
 # Rough chars->tokens divisor. Conservative (3) so we never *under*estimate
 # and risk exceeding the real limit.
 TOKEN_DIVISOR = 3
+
+# Retry reduction factor: when the upstream returns malformed tool calls the
+# proxy retries with this fraction of the original context budget.
+# CLINE_RETRY_REDUCTION_FACTOR=0.9 means drop ~10 % of the oldest messages.
+# Set to 0 to disable retries entirely.
+RETRY_REDUCTION_FACTOR = float(os.environ.get("CLINE_RETRY_REDUCTION_FACTOR", "0.9"))
 
 LOG_LEVEL = logging.DEBUG if os.environ.get("CLAUDE_PROXY_LOG") else logging.INFO
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -260,6 +266,25 @@ def make_msg_id():
     return "msg_" + uuid.uuid4().hex[:24]
 
 
+class StreamBuffer:
+    """Collects SSE event strings internally; flushes to a real writer only on demand."""
+
+    def __init__(self):
+        self._events: list[str] = []
+
+    async def emit(self, text: str):
+        self._events.append(text)
+
+    async def flush(self, writer):
+        for ev in self._events:
+            await writer(ev.encode())
+        self._events.clear()
+
+    @property
+    def events(self):
+        return self._events
+
+
 ANTHROPIC_STOP_REASONS = {
     "stop": "end_turn",
     "length": "max_tokens",
@@ -420,7 +445,7 @@ def _truncate_messages(body: dict, max_input_tokens: int, model_max_tokens: int)
 
 
 def translate_request(body: dict, config: dict) -> dict:
-    max_input_tokens = config.get("max_input_tokens", MAX_INPUT_TOKENS)
+    max_input_tokens = body.get("_reduced_max_input") or config.get("max_input_tokens", MAX_INPUT_TOKENS)
     model_max_tokens = config.get("model_max_tokens", MODEL_MAX_TOKENS)
     if max_input_tokens and max_input_tokens > 0:
         dropped, est_total = _truncate_messages(body, max_input_tokens, model_max_tokens)
@@ -662,6 +687,40 @@ async def _emit_stream_error(resp: web.StreamResponse, message: str):
         pass
 
 
+def _has_valid_tool_calls(final_finish: str | None, tool_calls: dict) -> bool:
+    """Check whether tool call arguments look structurally valid."""
+    if final_finish != "tool_calls":
+        return True
+    if not tool_calls:
+        return True
+    for idx, tc in tool_calls.items():
+        args = tc.get("arguments", "")
+        if not args or not args.strip():
+            return False
+        try:
+            parsed = json.loads(args)
+            if not isinstance(parsed, dict):
+                return False
+        except json.JSONDecodeError:
+            return False
+    return True
+
+
+def _reduce_body(body: dict, factor: float | None = None) -> dict:
+    """Return a shallow copy with context truncated to ``factor`` of the budget.
+
+    If *factor* is ``None`` the global ``RETRY_REDUCTION_FACTOR`` is used.
+    """
+    if factor is None:
+        factor = RETRY_REDUCTION_FACTOR
+    if factor <= 0:
+        return body
+    new_body = copy.deepcopy(body)
+    new_max = int(MAX_INPUT_TOKENS * factor)
+    new_body["_reduced_max_input"] = new_max
+    return new_body
+
+
 async def _keepalive_writer(resp: web.StreamResponse, stop: asyncio.Event):
     """Send SSE comment pings so Claude Code's connection stays alive while the upstream model thinks."""
     while not stop.is_set():
@@ -681,29 +740,23 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
         logger.error("Stream init error: %s", e)
         return web.json_response({"error": {"type": "api_error", "message": str(e)}}, status=502)
 
-    resp = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "x-vercel-ai-data-stream": "v1",
-        },
-    )
-    await resp.prepare(request)
-
-    msg_id = make_msg_id()
+    # --- Phase 1: buffer all SSE events internally (no client writes yet) ---
+    buf = StreamBuffer()
+    current_tool_calls: dict[int, dict] = {}
+    text_started = False
+    thinking_started = False
+    final_finish = None
+    last_usage: dict = {}
+    stream_errored = False
     cb_index = [0]
-
-    stop_keepalive = asyncio.Event()
-    keepalive_task = asyncio.create_task(_keepalive_writer(resp, stop_keepalive))
 
     def send_anthropic_event(event_type: str, data: dict):
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
     async def emit(text: str):
-        await resp.write(text.encode())
+        await buf.emit(text)
 
+    msg_id = make_msg_id()
     await emit(send_anthropic_event("message_start", {
         "type": "message_start",
         "message": {
@@ -717,13 +770,6 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
             "usage": {"input_tokens": 0, "output_tokens": 0},
         },
     }))
-
-    current_tool_calls: dict[int, dict] = {}
-    text_started = False
-    thinking_started = False
-    final_finish = None
-    last_usage: dict = {}
-    stream_errored = False
 
     try:
         stream_chunk_count = 0
@@ -751,10 +797,6 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                 logger.warning("Ignoring malformed SSE chunk: %s", raw[:200])
                 continue
 
-            # Some providers send token usage in a dedicated choices:[] chunk
-            # (when stream_options.include_usage is enabled). Capture it even
-            # when there are no choices so Claude Code sees real input_tokens
-            # and can trigger autocompact on its own.
             if "usage" in chunk:
                 last_usage = chunk.get("usage", {})
 
@@ -772,6 +814,8 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
                              [tc.get("function", {}).get("name") for tc in tc_in_chunk] if tc_in_chunk else None,
                              bool(delta.get("content")),
                              bool(delta.get("reasoning")))
+                if tc_in_chunk and stream_chunk_count <= 5:
+                    logger.debug("SSE raw tool_call chunk: %s", json.dumps(tc_in_chunk, ensure_ascii=False)[:500])
 
             reasoning = delta.get("reasoning", "")
             if reasoning:
@@ -888,60 +932,103 @@ async def handle_stream(request: web.Request, config: dict, oai_body: dict, mode
     except (ConnectionResetError, asyncio.CancelledError) as e:
         logger.info("Connection reset: %s", e)
         stream_errored = True
-        await _emit_stream_error(resp, f"Connection reset: {e}")
     except aiohttp.ClientPayloadError as e:
         logger.error("Upstream SSE payload error: %s", e)
         stream_errored = True
-        await _emit_stream_error(resp, f"Upstream interrupted: {e}")
     except aiohttp.ClientConnectionError as e:
         logger.error("Upstream connection error: %s", e)
         stream_errored = True
-        await _emit_stream_error(resp, f"Connection lost: {e}")
     except aiohttp.ServerTimeoutError as e:
         logger.error("Upstream SSE timeout: %s", e)
         stream_errored = True
-        await _emit_stream_error(resp, f"Upstream timeout: {e}")
     except Exception as e:
         logger.error("Stream error: %s", e)
         logger.exception(e)
         stream_errored = True
-        await _emit_stream_error(resp, f"Stream error: {e}")
     finally:
-        stop_keepalive.set()
-        try:
-            await keepalive_task
-        except Exception:
-            pass
-
-        if final_finish is None and not stream_errored:
-            logger.warning("SSE stream ended without finish_reason (%d chunks, last chunk %.1fs ago)",
-                           stream_chunk_count, time.time() - last_chunk_time)
-
-        # Emit the final message_delta with the real (accumulated) usage so
-        # Claude Code tracks context usage and triggers autocompact.
-        # Skip when the stream errored — an error event was already sent and
-        # sending message_stop would confuse Claude Code.
-        if final_finish is not None and not stream_errored:
-            await emit(send_anthropic_event("message_delta", {
-                "type": "message_delta",
-                "delta": {
-                    "stop_reason": ANTHROPIC_STOP_REASONS.get(final_finish, "end_turn"),
-                    "stop_sequence": None,
-                },
-                "usage": {
-                    "output_tokens": last_usage.get("completion_tokens", 0),
-                    "input_tokens": last_usage.get("prompt_tokens", 0),
-                },
-            }))
-            await emit(send_anthropic_event("message_stop", {"type": "message_stop"}))
-
-        try:
-            await resp.write_eof()
-        except (ConnectionResetError, ConnectionError):
-            pass
         upstream_resp.close()
         if not sess.closed:
             await sess.close()
+
+    if final_finish is None and not stream_errored:
+        logger.warning("SSE stream ended without finish_reason (%d chunks, last chunk %.1fs ago)",
+                       stream_chunk_count, time.time() - last_chunk_time)
+
+    # --- Phase 2: validate tool calls before sending anything to the client ---
+    if stream_errored:
+        resp = web.StreamResponse(
+            status=200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "x-vercel-ai-data-stream": "v1",
+            },
+        )
+        await resp.prepare(request)
+        await _emit_stream_error(resp, "Upstream stream error during buffering")
+        await resp.write_eof()
+        return resp
+
+    if not _has_valid_tool_calls(final_finish, current_tool_calls):
+        if RETRY_REDUCTION_FACTOR <= 0:
+            logger.warning("Malformed tool calls detected but retries disabled (CLINE_RETRY_REDUCTION_FACTOR=%s)",
+                           RETRY_REDUCTION_FACTOR)
+        else:
+            logger.warning("Malformed tool calls detected (finish=%s, tool_calls=%s) — retrying with %.0f%% context",
+                           final_finish, {idx: tc["arguments"] for idx, tc in current_tool_calls.items()},
+                           RETRY_REDUCTION_FACTOR * 100)
+            try:
+                retry_body = _reduce_body(oai_body)
+                return await handle_stream(request, config, retry_body, model_name)
+            except Exception as e:
+                logger.error("Retry failed: %s", e)
+                resp = web.StreamResponse(
+                    status=200,
+                    headers={
+                        "Content-Type": "text/event-stream",
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "x-vercel-ai-data-stream": "v1",
+                    },
+                )
+                await resp.prepare(request)
+                await _emit_stream_error(resp, f"Retry failed: {e}")
+                await resp.write_eof()
+                return resp
+
+    # --- Phase 3: valid response — prepare client connection and flush ---
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "x-vercel-ai-data-stream": "v1",
+        },
+    )
+    await resp.prepare(request)
+
+    if final_finish is not None:
+        await emit(send_anthropic_event("message_delta", {
+            "type": "message_delta",
+            "delta": {
+                "stop_reason": ANTHROPIC_STOP_REASONS.get(final_finish, "end_turn"),
+                "stop_sequence": None,
+            },
+            "usage": {
+                "output_tokens": last_usage.get("completion_tokens", 0),
+                "input_tokens": last_usage.get("prompt_tokens", 0),
+            },
+        }))
+        await emit(send_anthropic_event("message_stop", {"type": "message_stop"}))
+
+    await buf.flush(resp.write)
+
+    try:
+        await resp.write_eof()
+    except (ConnectionResetError, ConnectionError):
+        pass
 
     return resp
 
