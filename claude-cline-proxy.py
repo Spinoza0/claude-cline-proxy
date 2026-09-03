@@ -188,8 +188,21 @@ async def load_cline_config():
     if not active:
         raise RuntimeError(f"Provider '{active_id}' not found")
 
+    # Fallback: if the chosen provider has no API key (e.g. empty OpenAI
+    # config in Cline), try openai-compatible which is the most common
+    # alternative for local/internal models.
     s = active["settings"]
-    provider = s["provider"]
+    provider = s.get("provider", "")
+    needs_key = provider in ("openai", "openrouter", "anthropic")
+    has_key = bool(s.get("apiKey"))
+    if needs_key and not has_key and active_id != "openai-compatible":
+        fallback = providers["providers"].get("openai-compatible")
+        if fallback and fallback.get("settings", {}).get("apiKey"):
+            logger.warning("Provider '%s' has no API key — falling back to openai-compatible", active_id)
+            active_id = "openai-compatible"
+            active = fallback
+            s = active["settings"]
+            provider = s.get("provider", "")
     model = os.environ.get("CLINE_OVERRIDE_MODEL") or s["model"]
     api_key = ""
     api_url = ""
@@ -203,7 +216,7 @@ async def load_cline_config():
                 "cline": "Cline",
                 "openrouter": "OpenRouter",
                 "openai": "OpenAi",
-                "openai-compatible": "OpenAi",
+                "openai-compatible": "OpenAiCompatible",
                 "fireworks": "Fireworks",
             }
             mode = gs.get("mode", "act").lower()

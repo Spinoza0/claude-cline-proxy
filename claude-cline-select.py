@@ -35,7 +35,7 @@ if os.path.exists(GLOBAL_STATE_FILE):
     try:
         gs = json.load(open(GLOBAL_STATE_FILE))
         mode = gs.get("mode", "act").lower()
-        key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAi", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
+        key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAiCompatible", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
         for pid, pv in providers.items():
             ptype = pv.get("settings", {}).get("provider", "")
             k = f"{mode}Mode{key_suffix_map.get(ptype, ptype.title())}ModelId"
