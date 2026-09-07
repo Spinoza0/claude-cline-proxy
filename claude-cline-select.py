@@ -33,9 +33,11 @@ try:
         except Exception:
             pass
 
-    # If active provider was filtered out, fall back to cline or first available
+    # If active provider was filtered out, fall back to lastUsedProvider or first available
     if active_id not in pids:
-        active_id = DEFAULT if DEFAULT in pids else (pids[0] if pids else DEFAULT)
+        active_id = p.get("lastUsedProvider", DEFAULT)
+    if active_id not in pids:
+        active_id = pids[0] if pids else DEFAULT
 except Exception:
     print(DEFAULT, end="")
     sys.exit(0)
@@ -54,7 +56,7 @@ if os.path.exists(GLOBAL_STATE_FILE):
     try:
         gs = json.load(open(GLOBAL_STATE_FILE))
         mode = gs.get("mode", "act").lower()
-        key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAiCompatible", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
+        key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAi", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
         for pid in pids:
             pv = providers[pid]
             ptype = pv.get("settings", {}).get("provider", "")

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.11"
+VERSION="1.7.12"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
