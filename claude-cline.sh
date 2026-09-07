@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.13"
+VERSION="1.7.14"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -95,7 +95,6 @@ def token_valid(token):
     return bool(token) and time.time() < decode_jwt_exp(token)
 
 def get_active_id(providers):
-    """Same priority chain as proxy: env → globalState (with prefix match) → lastUsedProvider"""
     env_id = os.environ.get('CLINE_OVERRIDE_PROVIDER')
     if env_id:
         return env_id
