@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.12"
+VERSION="1.7.13"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -95,7 +95,7 @@ def token_valid(token):
     return bool(token) and time.time() < decode_jwt_exp(token)
 
 def get_active_id(providers):
-    """Same priority chain as proxy: env → globalState → lastUsedProvider"""
+    """Same priority chain as proxy: env → globalState (with prefix match) → lastUsedProvider"""
     env_id = os.environ.get('CLINE_OVERRIDE_PROVIDER')
     if env_id:
         return env_id
@@ -105,8 +105,16 @@ def get_active_id(providers):
             gs = json.load(open(gs_path))
             mode = gs.get('mode', 'act').lower()
             gs_pid = gs.get(f'{mode}ModeApiProvider', '')
-            if gs_pid and gs_pid in providers.get('providers', {}):
-                return gs_pid
+            if gs_pid:
+                provs = providers.get('providers', {})
+                if gs_pid in provs:
+                    return gs_pid
+                candidates = [pid for pid in provs if pid.startswith(gs_pid + '-') or pid.startswith(gs_pid + '_')]
+                if len(candidates) == 1:
+                    return candidates[0]
+                elif len(candidates) > 1:
+                    lu = providers.get('lastUsedProvider', '')
+                    return lu if lu in candidates else candidates[0]
         except Exception:
             pass
     return providers.get('lastUsedProvider', 'cline')
@@ -258,14 +266,23 @@ import json, os
 try:
     p = json.load(open(os.path.expanduser('$HOME/.cline/data/settings/providers.json')))
     gs_path = os.path.expanduser('$HOME/.cline/data/globalState.json')
-    # Priority: env override → globalState → lastUsedProvider
+    # Priority: env override → globalState (with prefix match) → lastUsedProvider
     active_id = os.environ.get('CLINE_OVERRIDE_PROVIDER') or ''
+    providers = p.get('providers', {})
     if not active_id and os.path.exists(gs_path):
         gs = json.load(open(gs_path))
         mode = gs.get('mode', 'act').lower()
         gs_pid = gs.get(f'{mode}ModeApiProvider', '')
-        if gs_pid and gs_pid in p.get('providers', {}):
-            active_id = gs_pid
+        if gs_pid:
+            if gs_pid in providers:
+                active_id = gs_pid
+            else:
+                candidates = [pid for pid in providers if pid.startswith(gs_pid + '-') or pid.startswith(gs_pid + '_')]
+                if len(candidates) == 1:
+                    active_id = candidates[0]
+                elif len(candidates) > 1:
+                    lu = p.get('lastUsedProvider', '')
+                    active_id = lu if lu in candidates else candidates[0]
     if not active_id:
         active_id = p.get('lastUsedProvider', 'cline')
     active = p.get('providers', {}).get(active_id, {})

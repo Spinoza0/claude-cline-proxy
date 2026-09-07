@@ -22,14 +22,27 @@ try:
     pids = [pid for pid in providers if _has_key(pid)]
 
     # Active provider: globalState → lastUsedProvider → default
+    # globalState may store a short provider type (e.g. "openai") while
+    # providers.json uses a longer ID (e.g. "openai-compatible"), so we
+    # also try prefix matching on provider IDs.
     active_id = p.get("lastUsedProvider", DEFAULT)
     if os.path.exists(GLOBAL_STATE_FILE):
         try:
             gs = json.load(open(GLOBAL_STATE_FILE))
             mode = gs.get("mode", "act").lower()
             gs_pid = gs.get(f"{mode}ModeApiProvider", "")
-            if gs_pid and gs_pid in providers:
-                active_id = gs_pid
+            if gs_pid:
+                if gs_pid in providers:
+                    active_id = gs_pid
+                else:
+                    # Try prefix match: "openai" matches "openai-compatible"
+                    candidates = [pid for pid in providers if pid.startswith(gs_pid + "-") or pid.startswith(gs_pid + "_")]
+                    if len(candidates) == 1:
+                        active_id = candidates[0]
+                    elif len(candidates) > 1:
+                        # Prefer lastUsedProvider if it's in candidates
+                        lu = p.get("lastUsedProvider", "")
+                        active_id = lu if lu in candidates else candidates[0]
         except Exception:
             pass
 
