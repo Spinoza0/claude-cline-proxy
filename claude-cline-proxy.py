@@ -23,9 +23,11 @@ MAX_INPUT_TOKENS = int(os.environ.get("CLINE_MAX_INPUT_TOKENS", "250000"))
 MODEL_MAX_TOKENS = int(os.environ.get("CLINE_MODEL_MAX_TOKENS", "262144"))
 # Safety margin (tokens) kept free below the hard limit.
 TRUNC_MARGIN = 1024
-# Rough chars->tokens divisor. Conservative (3) so we never *under*estimate
-# and risk exceeding the real limit.
-TOKEN_DIVISOR = 3
+# Rough chars->tokens divisor. Conservative (2) so we never *under*estimate
+# and risk exceeding the real limit.  Earlier versions used 3 which was too
+# aggressive for Cyrillic / CJK text and structured JSON, causing occasional
+# context-limit overflows.
+TOKEN_DIVISOR = 2
 
 # Retry reduction factor: when the upstream returns malformed tool calls the
 # proxy retries with this fraction of the original context budget.
