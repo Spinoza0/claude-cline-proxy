@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.15"
+VERSION="1.7.16"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -60,12 +60,66 @@ if [ ! -d "$HOME/.cline" ]; then
     exit 1
 fi
 
-# Check python3 is available
-if ! command -v python3 &>/dev/null; then
-    echo "Error: python3 is not installed." >&2
+# Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
+BREW_PREFIX=""
+if [[ "$DIR" == */Cellar/*/bin ]]; then
+    BREW_PREFIX="$(cd "$DIR/.." && pwd)"
+fi
+
+# Locate a usable Python 3. Preference order:
+#   1. venv bundled with the Homebrew install (it already carries aiohttp)
+#   2. the venv from an installed Homebrew package (for dev checkouts)
+#   3. Homebrew's python (newer than the macOS system python)
+#   4. any other python3 on PATH
+# A candidate only counts if it is Python 3.10+ (the proxy uses the
+# `X | Y` annotation syntax) and can import aiohttp. If nothing qualifies we
+# print an install hint and exit cleanly instead of crashing with a traceback.
+PYTHON=""
+PY_CANDIDATES=()
+add_candidate() {
+    local c="$1"
+    if [ -n "$c" ] && [ -x "$c" ]; then
+        PY_CANDIDATES+=("$c")
+    fi
+}
+add_candidate "$BREW_PREFIX/libexec/venv/bin/python3"
+add_candidate "$BREW_PREFIX/libexec/bin/python3"
+for venv in /opt/homebrew/Cellar/claude-cline-proxy/*/libexec/venv/bin/python3 \
+            /usr/local/Cellar/claude-cline-proxy/*/libexec/venv/bin/python3; do
+    add_candidate "$venv"
+done
+add_candidate /opt/homebrew/bin/python3
+add_candidate /usr/local/bin/python3
+add_candidate "$(command -v python3 2>/dev/null)"
+
+for cand in "${PY_CANDIDATES[@]}"; do
+    if "$cand" -c 'import sys, aiohttp
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+        PYTHON="$cand"
+        break
+    fi
+done
+
+if [ -z "$PYTHON" ]; then
+    echo "Error: a compatible Python 3.10+ with the 'aiohttp' package was not found." >&2
     echo "" >&2
-    echo "Python 3 is required to run the proxy." >&2
-    echo "Install it from: https://www.python.org/downloads/" >&2
+    if [ -n "$PY_CANDIDATES" ]; then
+        echo "Checked interpreters:" >&2
+        for c in "${PY_CANDIDATES[@]}"; do
+            v=$("$c" --version 2>&1 || true)
+            printf '   %s  [%s]\n' "$c" "$v" >&2
+        done
+        echo "" >&2
+    fi
+    if command -v brew &>/dev/null; then
+        echo "Install Python via Homebrew:" >&2
+        echo "    brew install python" >&2
+    else
+        echo "Install Python 3 from: https://www.python.org/downloads/" >&2
+    fi
+    echo "" >&2
+    echo "Then install the required dependency:" >&2
+    echo "    pip3 install aiohttp" >&2
     exit 1
 fi
 
@@ -79,7 +133,7 @@ if ! command -v claude &>/dev/null; then
 fi
 
 # Check Cline tokens are valid before starting proxy
-python3 -c "
+"$PYTHON" -c "
 import json, os, time, base64
 
 def decode_jwt_exp(token):
@@ -160,22 +214,6 @@ except: pass
     echo "To re-authenticate, run: cline auth" >&2
     exit 1
 }
-
-# Detect Homebrew Cellar: script is in .../Cellar/<name>/<version>/bin/
-BREW_PREFIX=""
-if [[ "$DIR" == */Cellar/*/bin ]]; then
-    BREW_PREFIX="$(cd "$DIR/.." && pwd)"
-fi
-
-# Use venv python when installed via Homebrew, otherwise system python3
-PYTHON="python3"
-if [ -n "$BREW_PREFIX" ]; then
-    if [ -x "$BREW_PREFIX/libexec/venv/bin/python3" ]; then
-        PYTHON="$BREW_PREFIX/libexec/venv/bin/python3"
-    elif [ -x "$BREW_PREFIX/libexec/bin/python3" ]; then
-        PYTHON="$BREW_PREFIX/libexec/bin/python3"
-    fi
-fi
 
 MCP_CONFIG=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX.json)
 

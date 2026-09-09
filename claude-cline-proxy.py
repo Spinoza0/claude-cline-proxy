@@ -347,17 +347,56 @@ def translate_tool_result_content(content) -> str | list:
     return ""
 
 
+# Tokens per ~1000 bytes of decoded image data. Base64 inflates the text by
+# 4/3, and raw tokenising of a base64 string massively over-counts a real
+# image, which can push the context guard into dropping the user turn (and
+# then OpenAI rejects the request with "No user query found"). Use the raw
+# byte size instead: models typically account ~1 token per image tile, so
+# this is a conservative upper bound once the base64 inflation is removed.
+IMAGE_TOKENS_PER_KB = 4
+
+
 def _estimate_tokens(text_or_obj) -> int:
-    """Rough token estimate. Conservative divisor so we never undercount."""
+    """Rough token estimate. Conservative divisor so we never undercount.
+
+    Image content blocks are estimated from their raw decoded byte size
+    (not the length of the base64 string), otherwise a large screenshot is
+    miscounted as hundreds of thousands of text tokens.
+    """
     if text_or_obj is None:
         return 0
     if isinstance(text_or_obj, str):
         s = text_or_obj
-    else:
+        return max(1, len(s) // TOKEN_DIVISOR)
+    if isinstance(text_or_obj, dict):
+        # Estimate a message/content-block structure with image awareness.
+        total = 0
+        if text_or_obj.get("type") == "image":
+            src = text_or_obj.get("source") or {}
+            data = src.get("data", "") if isinstance(src, dict) else ""
+            if data:
+                # base64 -> raw bytes (4 chars per 3 bytes)
+                raw = (len(data) * 3) // 4
+                total += max(1, (raw // 1000) * IMAGE_TOKENS_PER_KB)
+            return total
+        content = text_or_obj.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total += _estimate_tokens(block)
+            return max(total, 1)
+        if isinstance(content, str):
+            return max(1, len(content) // TOKEN_DIVISOR)
+        # Fall back to serialising the whole object.
         try:
             s = json.dumps(text_or_obj, ensure_ascii=False)
         except Exception:
             s = str(text_or_obj)
+        return max(1, len(s) // TOKEN_DIVISOR)
+    try:
+        s = json.dumps(text_or_obj, ensure_ascii=False)
+    except Exception:
+        s = str(text_or_obj)
     return max(1, len(s) // TOKEN_DIVISOR)
 
 
@@ -416,6 +455,30 @@ def _build_units(messages: list) -> list:
     return units
 
 
+def _unit_is_query(messages: list, unit: list, unit_tok: list) -> bool:
+    """Whether a unit carries a real user prompt (text/image blocks), as
+    opposed to just a system/system-echo or a bare tool round. OpenAI rejects
+    requests whose last message isn't a user query ("No user query found"), so
+    the context guard must never leave only system/assistant/tool messages."""
+    for idx in unit:
+        m = messages[idx]
+        if m.get("role") != "user":
+            continue
+        content = m.get("content")
+        if isinstance(content, str):
+            return bool(content.strip())
+        if isinstance(content, list):
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                btype = b.get("type")
+                if btype == "text" and (b.get("text") or "").strip():
+                    return True
+                if btype == "image":
+                    return True
+    return False
+
+
 def _truncate_messages(body: dict, max_input_tokens: int, model_max_tokens: int):
     """Drop oldest conversation units so the input fits the token budget.
 
@@ -437,19 +500,30 @@ def _truncate_messages(body: dict, max_input_tokens: int, model_max_tokens: int)
 
     keep_units = []
     total = 0
-    for u, tok in reversed(list(zip(units, unit_tok))):
+    # Walk newest->oldest, preferring units that carry a real user query so a
+    # long context retained from the newest query keeps the prompt intact.
+    order = list(range(len(units)))
+    order.sort(key=lambda i: (not _unit_is_query(messages, units[i], unit_tok), -i))
+    for ui in order:
+        tok = unit_tok[ui]
         if total + tok <= avail:
-            keep_units.append(u)
+            keep_units.append(ui)
             total += tok
-        else:
-            break
 
     if not keep_units:
-        # Never emit an empty request: keep at least the newest unit.
-        keep_units = [units[-1]]
+        # Never emit a query-less request: keep the newest unit that contains
+        # an actual user prompt (text/image), falling back to the newest unit.
+        for ui in order:
+            if _unit_is_query(messages, units[ui], unit_tok):
+                keep_units = [ui]
+                total = unit_tok[ui]
+                break
+        if not keep_units:
+            keep_units = [len(units) - 1]
+            total = unit_tok[-1]
 
-    keep_units.reverse()
-    kept_set = {idx for u in keep_units for idx in u}
+    keep_units.sort()
+    kept_set = {idx for ui in keep_units for idx in units[ui]}
     new_messages = [messages[i] for i in range(len(messages)) if i in kept_set]
 
     dropped = len(messages) - len(new_messages)
