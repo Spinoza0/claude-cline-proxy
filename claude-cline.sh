@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.16"
+VERSION="1.7.17"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -233,6 +233,19 @@ trap cleanup SIGINT SIGTERM EXIT
 
 rm -f "$PORT_FILE"
 
+# Garbage-collect leftover /tmp artifacts from dead runs (killed -9 / crash),
+# which the trap above cannot catch. A file is stale when its PID is not alive.
+for stale in /tmp/claude-proxy-port-*.txt /tmp/claude-proxy-*.log /tmp/claude-mcp-*.json; do
+    case "$stale" in
+        /tmp/claude-proxy-port-*) pid="${stale#/tmp/claude-proxy-port-}"; pid="${pid%.txt}" ;;
+        /tmp/claude-proxy-*.log)  pid="${stale#/tmp/claude-proxy-}"; pid="${pid%.log}" ;;
+        /tmp/claude-mcp-*.json)   pid="${stale#/tmp/claude-mcp-}"; pid="${pid%%-*}" ;;
+    esac
+    if [ -n "$pid" ] && [ "$pid" != "$$" ] && ! kill -0 "$pid" 2>/dev/null; then
+        rm -f -- "$stale"
+    fi
+done
+
 # Locate proxy script: next to script (dev) or in Homebrew libexec (installed)
 PROXY_SCRIPT="$DIR/claude-cline-proxy.py"
 if [ -z "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
@@ -263,8 +276,15 @@ echo ""
 
 echo "Starting Cline proxy (Python: $PYTHON)..."
 export CLAUDE_PROXY_PORT_FILE="$PORT_FILE"
-LOG_FILE="/tmp/claude-proxy-$$.log"
-$PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
+# Proxy log: off by default, opt-in via CLAUDE_PROXY_LOG=1 (no /tmp garbage otherwise).
+LOG_FILE=""
+if [ "${CLAUDE_PROXY_LOG:-0}" = "1" ]; then
+    LOG_FILE="/tmp/claude-proxy-$$.log"
+    rm -f "$LOG_FILE"
+    $PYTHON "$PROXY_SCRIPT" > "$LOG_FILE" 2>&1 &
+else
+    $PYTHON "$PROXY_SCRIPT" > /dev/null 2>&1 &
+fi
 PROXY_PID=$!
 
 PORT=""
@@ -280,11 +300,13 @@ if [ -z "$PORT" ]; then
     echo "Proxy failed to start (port file not found)" >&2
     echo "Python: $PYTHON" >&2
     echo "Script: $PROXY_SCRIPT" >&2
-    echo "Log: $LOG_FILE" >&2
-    if [ -s "$LOG_FILE" ]; then
+    echo "Log: ${LOG_FILE:-/dev/null}" >&2
+    if [ -n "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
         echo "--- proxy output ---" >&2
         cat "$LOG_FILE" >&2
         echo "---" >&2
+    else
+        echo "(logging disabled; set CLAUDE_PROXY_LOG=1 for proxy output)" >&2
     fi
     kill "$PROXY_PID" 2>/dev/null || true
     exit 1
