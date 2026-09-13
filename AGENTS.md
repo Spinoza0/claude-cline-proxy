@@ -50,7 +50,7 @@ Releasing is a single end-to-end flow. Do **all** of the following in order — 
 
 1. Update `VERSION` string in `claude-cline.sh` to match the new tag.
 2. Commit, tag, and push the tag + branch:
-   `git add README.md claude-cline-proxy.py claude-cline.sh && git commit -m "v1.x.x" && git tag v1.x.x && git push origin v1.x.x && git push`
+   `git add README.md claude-cline-proxy.py claude-cline-select.py claude-cline-mcp.json claude-cline.sh && git commit -m "v1.x.x" && git tag v1.x.x && git push origin v1.x.x && git push`
 3. Compute the tarball SHA256 (after the tag is pushed):
    `curl -sL "https://github.com/Spinoza0/claude-cline-proxy/archive/refs/tags/v1.x.x.tar.gz" | shasum -a 256`
 4. Create the **GitHub Release** for the tag (a tag alone does NOT appear on the Releases page):
