@@ -17,7 +17,11 @@ try:
         if pid in NO_KEY_OK:
             return True
         s = providers.get(pid, {}).get("settings", {})
-        return bool(s.get("apiKey"))
+        if s.get("apiKey"):
+            return True
+        # OAuth-based providers (e.g. cline-pass) authenticate via a
+        # workos:<JWT> accessToken in settings.auth, not an apiKey.
+        return bool(s.get("auth", {}).get("accessToken", "").startswith("workos:"))
 
     pids = [pid for pid in providers if _has_key(pid)]
 
