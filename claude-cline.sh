@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.19"
+VERSION="1.7.20"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -445,6 +445,10 @@ fi
 
 export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
 export ANTHROPIC_API_KEY="sk-ant-dummy"
+# The Cline backend can't run Anthropic server-side safeguards, so disable
+# auto-mode server checks. Otherwise Claude Code falls back to its own billed
+# classifier requests and shows the eligibility notice.
+export CLAUDE_CODE_AUTO_MODE_SERVER=0
 
 if [ -n "$CLINE_MODEL" ]; then
     export ANTHROPIC_DEFAULT_OPUS_MODEL="$CLINE_MODEL"
