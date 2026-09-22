@@ -258,3 +258,7 @@ Result passed to Claude Code: both `my-local-server` and `brave-search` are avai
 | `claude-cline-select.py` | Interactive TUI provider selection menu with 5s timeout and globalState-aware defaults |
 | `claude-cline-mcp.json` | MCP server definitions (user-editable; Cline MCP servers merged automatically, local overrides take precedence) |
 | `AGENTS.md` | Internal architecture notes, auth flow details |
+
+## License
+
+[MIT](LICENSE) — see the [LICENSE](LICENSE) file for details.
