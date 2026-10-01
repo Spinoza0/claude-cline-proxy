@@ -195,9 +195,11 @@ async def load_cline_config():
     # alternative for local/internal models.
     s = active["settings"]
     provider = s.get("provider", "")
-    NO_KEY_OK = {"cline", "ollama"}
+    NO_KEY_OK = {"cline", "cline-pass", "ollama"}
     needs_key = provider not in NO_KEY_OK
-    has_key = bool(s.get("apiKey"))
+    # OAuth-based providers (cline, cline-pass) authenticate via a
+    # "workos:<JWT>" settings.auth.accessToken, not via settings.apiKey.
+    has_key = bool(s.get("apiKey")) or bool(s.get("auth", {}).get("accessToken", ""))
     if needs_key and not has_key and active_id != "openai-compatible":
         fallback = providers["providers"].get("openai-compatible")
         if fallback and fallback.get("settings", {}).get("apiKey"):
@@ -217,9 +219,10 @@ async def load_cline_config():
             gs = json.loads(GLOBAL_STATE_FILE.read_text())
             key_suffix_map = {
                 "cline": "Cline",
+                "cline-pass": "ClinePass",
                 "openrouter": "OpenRouter",
                 "openai": "OpenAi",
-                "openai-compatible": "OpenAiCompatible",
+                "openai-compatible": "OpenAi",
                 "fireworks": "Fireworks",
             }
             mode = gs.get("mode", "act").lower()
@@ -230,11 +233,12 @@ async def load_cline_config():
         except Exception as e:
             logger.warning("Failed to read globalState.json: %s", e)
 
-    if provider == "cline":
+    if provider in ("cline", "cline-pass"):
         workos_token = ""
-        acc_data_str = secrets.get("cline:clineAccountId", "")
-        if acc_data_str:
-            workos_token = extract_valid_id_token(acc_data_str)
+        if provider == "cline":
+            acc_data_str = secrets.get("cline:clineAccountId", "")
+            if acc_data_str:
+                workos_token = extract_valid_id_token(acc_data_str)
         if not workos_token:
             workos_token = extract_valid_access_token(s)
         if not workos_token:
@@ -248,6 +252,9 @@ async def load_cline_config():
         api_key = s.get("apiKey", "")
         base = s.get("baseUrl", "").rstrip("/")
         api_url = base + "/chat/completions"
+    elif provider == "ollama":
+        api_key = s.get("apiKey", "ollama")
+        api_url = s.get("baseUrl", "http://127.0.0.1:11434").rstrip("/") + "/v1/chat/completions"
     elif provider == "anthropic":
         api_key = s.get("apiKey", "")
         api_url = s.get("baseUrl", "https://api.anthropic.com").rstrip("/") + "/v1/messages"
@@ -275,7 +282,38 @@ async def load_cline_config():
         "provider": provider,
         "max_input_tokens": max_input_tokens,
         "model_max_tokens": model_max_tokens,
+        "extra_headers": cline_headers(),
     }
+
+
+def cline_headers() -> dict:
+    """Client-identification headers api.cline.bot requires.
+
+    Without X-CLIENT-TYPE the upstream rejects requests with 403
+    ("only available via Cline product surfaces").
+    """
+    version = os.environ.get("CLINE_CLIENT_VERSION", "2.0.4")
+    return {
+        "User-Agent": f"Cline/{version}",
+        "X-CLIENT-TYPE": os.environ.get("CLINE_CLIENT_TYPE", "cline-cli"),
+        "X-CLIENT-VERSION": version,
+        "X-PLATFORM": "cli",
+        "X-PLATFORM-VERSION": version,
+        "X-CORE-VERSION": version,
+        "X-IS-MULTIROOT": "false",
+        "HTTP-Referer": "https://cline.bot",
+        "X-Title": "Cline",
+    }
+
+
+def build_headers(config: dict) -> dict:
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
+    if config.get("provider") in ("cline", "cline-pass"):
+        headers.update(config.get("extra_headers") or {})
+    return headers
 
 
 def make_msg_id():
@@ -673,7 +711,7 @@ def build_anthropic_response(openai_body: dict, config: dict, model_name: str = 
 
 
 async def call_openai(config: dict, oai_body: dict) -> dict:
-    headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
+    headers = build_headers(config)
 
     timeout = aiohttp.ClientTimeout(
         total=None,
@@ -693,7 +731,7 @@ async def call_openai(config: dict, oai_body: dict) -> dict:
 
 
 async def stream_openai(config: dict, oai_body: dict) -> tuple[aiohttp.ClientResponse, aiohttp.ClientSession]:
-    headers = {"Authorization": f"Bearer {config['api_key']}", "Content-Type": "application/json"}
+    headers = build_headers(config)
 
     # SSE streams should use short-lived connections. Some openai-compatible
     # providers reset idle keep-alive sockets aggressively, which leads to

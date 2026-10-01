@@ -4,7 +4,7 @@ import json, os, sys, tty, termios, select, time
 PROVIDERS_FILE = os.path.expanduser("~/.cline/data/settings/providers.json")
 DEFAULT = "cline"
 # Providers that work without an explicit apiKey in settings
-NO_KEY_OK = {"cline", "ollama"}
+NO_KEY_OK = {"cline", "cline-pass", "ollama"}
 
 GLOBAL_STATE_FILE = os.path.expanduser("~/.cline/data/globalState.json")
 
@@ -73,7 +73,7 @@ if os.path.exists(GLOBAL_STATE_FILE):
     try:
         gs = json.load(open(GLOBAL_STATE_FILE))
         mode = gs.get("mode", "act").lower()
-        key_suffix_map = {"cline": "Cline", "openai": "OpenAi", "openai-compatible": "OpenAi", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
+        key_suffix_map = {"cline": "Cline", "cline-pass": "ClinePass", "openai": "OpenAi", "openai-compatible": "OpenAi", "openrouter": "OpenRouter", "fireworks": "Fireworks"}
         for pid in pids:
             pv = providers[pid]
             ptype = pv.get("settings", {}).get("provider", "")

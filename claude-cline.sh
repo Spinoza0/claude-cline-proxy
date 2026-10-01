@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.21"
+VERSION="1.7.22"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -192,7 +192,7 @@ try:
     active_id = get_active_id(providers)
     active = providers.get('providers', {}).get(active_id, {})
     s = active.get('settings', {})
-    if s.get('provider') == 'cline':
+    if s.get('provider') in ('cline', 'cline-pass'):
         raw = s.get('auth', {}).get('accessToken', '')
         if raw.startswith('workos:'):
             raw_token = raw[7:]
@@ -206,7 +206,7 @@ try:
         p = json.load(f)
     active_id = get_active_id(p)
     active = p.get('providers', {}).get(active_id, {})
-    if active.get('settings', {}).get('provider') == 'cline':
+    if active.get('settings', {}).get('provider') in ('cline', 'cline-pass'):
         exit(1)
 except: pass
 " 2>/dev/null || {
@@ -352,7 +352,7 @@ try:
         gs = json.load(open(gs_path))
         mode = gs.get('mode', 'act').lower()
         ptype = active.get('settings', {}).get('provider', '')
-        suffix_map = {'cline': 'Cline', 'openrouter': 'OpenRouter', 'openai': 'OpenAi', 'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
+        suffix_map = {'cline': 'Cline', 'cline-pass': 'ClinePass', 'openrouter': 'OpenRouter', 'openai': 'OpenAi', 'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
         gs_key = f'{mode}Mode{suffix_map.get(ptype, ptype.title())}ModelId'
         gs_model = gs.get(gs_key, '')
         if gs_model:
@@ -415,8 +415,8 @@ try:
     else:
         gs = {}
     mode = gs.get('mode', 'act').lower()
-    suffix_map = {'cline': 'Cline', 'openrouter': 'OpenRouter', 'openai': 'OpenAi',
-                  'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
+    suffix_map = {'cline': 'Cline', 'cline-pass': 'ClinePass', 'openrouter': 'OpenRouter',
+                  'openai': 'OpenAi', 'openai-compatible': 'OpenAi', 'fireworks': 'Fireworks'}
     provider = os.environ.get('CLINE_OVERRIDE_PROVIDER') or ''
     if not provider:
         provider = gs.get(f'{mode}ModeApiProvider', '')
