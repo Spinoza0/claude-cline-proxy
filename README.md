@@ -238,23 +238,42 @@ Cline `cline_mcp_settings.json`:
 ```json
 {
   "mcpServers": {
-    "brave-search": {
+    "shared-server": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-      "env": { "BRAVE_API_KEY": "..." }
+      "args": ["-y", "@example/shared-mcp-server"],
+      "env": { "EXAMPLE_API_KEY": "..." }
     }
   }
 }
 ```
 
-Result passed to Claude Code: both `my-local-server` and `brave-search` are available. If both files defined `brave-search`, the version from `claude-cline-mcp.json` would be used.
+Result passed to Claude Code: both `my-local-server` and `shared-server` are available. If both files defined `shared-server`, the version from `claude-cline-mcp.json` would be used.
+
+## Claude Code subcommands
+
+Top-level Claude Code subcommands are forwarded to `claude` untouched, without starting the proxy:
+
+```bash
+claude-cline mcp add --scope user --transport http my-server https://example.com/mcp
+claude-cline mcp list
+claude-cline mcp get my-server
+claude-cline mcp login my-server
+claude-cline mcp remove my-server
+claude-cline plugin install my-plugin@my-marketplace
+claude-cline doctor
+claude-cline --version
+```
+
+This is required because `--tools default` (which the launcher adds for sessions) implies `--print`, which makes Claude Code read `mcp`/`plugin`/... as prompt text instead of a subcommand. Subcommand invocations also keep working when the Cline session has expired, since they never contact the model.
+
+To use the Cline provider as the default, run the subcommand once with `claude` and it is stored in the shared Claude Code config — no per-project setup needed.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `claude-cline-proxy.py` | Local proxy: Anthropic ↔ OpenAI translation, token management, config resolution from globalState + providers.json |
-| `claude-cline.sh` | Launcher: starts proxy, parses `--model`/`--provider`, auto-adds `--verbose` for stream-json, runs claude |
+| `claude-cline.sh` | Launcher: starts proxy, parses `--model`/`--provider`, forwards top-level `claude` subcommands, auto-adds `--verbose` for stream-json, runs claude |
 | `claude-cline-select.py` | Interactive TUI provider selection menu with 5s timeout and globalState-aware defaults |
 | `claude-cline-mcp.json` | MCP server definitions (user-editable; Cline MCP servers merged automatically, local overrides take precedence) |
 | `AGENTS.md` | Internal architecture notes, auth flow details |

@@ -38,7 +38,7 @@
 
 ## Key Architecture Decisions
 - Model is read from globalState.json first, then providers.json
-- Tavily MCP — only from Cline config (conditional), no hardcoded keys
+- MCP servers — only from Cline config / `claude-cline-mcp.json` (conditional), no hardcoded entries or keys
 - `--bare` not needed — `ANTHROPIC_API_KEY` (dummy) suffices for all tools
 - Proxy port — random from 8000-9000, up to 5 attempts
 - Streaming (SSE → Anthropic format) supported

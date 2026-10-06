@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.22"
+VERSION="1.7.23"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -132,6 +132,61 @@ if ! command -v claude &>/dev/null; then
     exit 1
 fi
 
+# Returns 0 if the arguments start a top-level claude subcommand. Subcommands
+# are handled entirely by the claude binary, but `--tools default` implies
+# --print, which makes Claude Code read `mcp`/`plugin`/... as prompt text
+# instead of a subcommand. Keep the names in sync with `claude --help`.
+is_claude_subcommand() {
+    local skip_value=0 a o
+    for a in "$@"; do
+        if [ "$skip_value" -eq 1 ]; then
+            skip_value=0
+            continue
+        fi
+        case "$a" in
+            --) return 1 ;;
+            -*) ;;
+            agents|attach|auth|auto-mode|doctor|gateway|import|install|logs|\
+            mcp|plugin|plugins|purge|respawn|rm|setup-token|stop|kill|\
+            ultrareview|update|upgrade) return 0 ;;
+            *) return 1 ;;
+        esac
+        # Skip the value of options that take one, so it is not mistaken for a
+        # subcommand.
+        for o in --add-dir --agent --agents --allowedTools --allowed-tools \
+                 --append-system-prompt --append-system-prompt-file --betas \
+                 --debug --disallowedTools --disallowed-tools --mcp-config \
+                 --permission-mode --plugin-dir --resume --session-id \
+                 --setting-sources --settings --system-prompt \
+                 --system-prompt-file --teleport --tools; do
+            if [ "$a" = "$o" ]; then
+                skip_value=1
+                break
+            fi
+        done
+    done
+    return 1
+}
+
+# Subcommands and --help/--version never reach the model, so hand them to claude
+# untouched instead of booting a proxy they would not use. This also keeps
+# `claude-cline mcp ...` working when the Cline session has expired.
+case "${1:-}" in
+    -h|--help|-v|--version)
+        exec claude "$@"
+        ;;
+esac
+
+if is_claude_subcommand "$@"; then
+    if [ -n "$CLINE_OVERRIDE_MODEL" ]; then
+        set -- --model "$CLINE_OVERRIDE_MODEL" "$@"
+    fi
+    if [ -n "$CLINE_OVERRIDE_PROVIDER" ]; then
+        set -- --provider "$CLINE_OVERRIDE_PROVIDER" "$@"
+    fi
+    exec claude "$@"
+fi
+
 # Check Cline tokens are valid before starting proxy
 "$PYTHON" -c "
 import json, os, time, base64
@@ -215,7 +270,10 @@ except: pass
     exit 1
 }
 
-MCP_CONFIG=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX.json)
+# BSD mktemp only expands XXXXXX when it ends the template, so keep the suffix
+# out of the template and re-attach it afterwards.
+MCP_CONFIG_BASE=$(mktemp /tmp/claude-mcp-$INSTANCE_ID-XXXXXX)
+MCP_CONFIG="${MCP_CONFIG_BASE}.json"
 
 cleanup() {
     local code=$?
@@ -225,7 +283,7 @@ cleanup() {
         kill "$PROXY_PID" 2>/dev/null
         wait "$PROXY_PID" 2>/dev/null || true
     fi
-    rm -f "$PORT_FILE" "$MCP_CONFIG" "/tmp/claude-proxy-$$.log"
+    rm -f "$PORT_FILE" "$MCP_CONFIG_BASE" "$MCP_CONFIG" "/tmp/claude-proxy-$$.log"
     exit $code
 }
 
