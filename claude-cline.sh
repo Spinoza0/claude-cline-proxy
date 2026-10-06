@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.23"
+VERSION="1.7.24"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -171,6 +171,9 @@ is_claude_subcommand() {
 # Subcommands and --help/--version never reach the model, so hand them to claude
 # untouched instead of booting a proxy they would not use. This also keeps
 # `claude-cline mcp ...` working when the Cline session has expired.
+# CLINE_OVERRIDE_MODEL / CLINE_OVERRIDE_PROVIDER configure the proxy, not the
+# claude CLI, so they must not be forwarded here — `--provider` is not even a
+# claude option and would make every subcommand fail.
 case "${1:-}" in
     -h|--help|-v|--version)
         exec claude "$@"
@@ -178,12 +181,6 @@ case "${1:-}" in
 esac
 
 if is_claude_subcommand "$@"; then
-    if [ -n "$CLINE_OVERRIDE_MODEL" ]; then
-        set -- --model "$CLINE_OVERRIDE_MODEL" "$@"
-    fi
-    if [ -n "$CLINE_OVERRIDE_PROVIDER" ]; then
-        set -- --provider "$CLINE_OVERRIDE_PROVIDER" "$@"
-    fi
     exec claude "$@"
 fi
 
