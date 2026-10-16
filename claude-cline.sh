@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.7.24"
+VERSION="1.7.25"
 
 SCRIPT="$0"
 while [ -h "$SCRIPT" ]; do
@@ -152,13 +152,24 @@ is_claude_subcommand() {
             *) return 1 ;;
         esac
         # Skip the value of options that take one, so it is not mistaken for a
-        # subcommand.
+        # subcommand. Two forms are handled: `--flag value` (a value follows as
+        # its own token, handled below by skip_value) and `--flag=value` (one
+        # token, matched by the `-*` branch above, nothing to skip). Keep the
+        # list in sync with `claude --help`; a value that is not skipped here
+        # would become the first positional token and mask a subcommand after
+        # it, sending `mcp`/`plugin`/... into the `--tools default` path.
         for o in --add-dir --agent --agents --allowedTools --allowed-tools \
-                 --append-system-prompt --append-system-prompt-file --betas \
-                 --debug --disallowedTools --disallowed-tools --mcp-config \
-                 --permission-mode --plugin-dir --resume --session-id \
+                 --append-system-prompt --append-system-prompt-file \
+                 --autocompact --betas --cloud --debug --debug-file \
+                 --disallowedTools --disallowed-tools --effort --environment \
+                 --fallback-model --file --from-pr --input-format --json-schema \
+                 --max-budget-usd --mcp-config --name --output-format \
+                 --permission-mode --permission-prompts --plugin-dir --plugin-url \
+                 --prompt-suggestions --remote-control \
+                 --remote-control-session-name-prefix --resume --session-id \
                  --setting-sources --settings --system-prompt \
-                 --system-prompt-file --teleport --tools; do
+                 --system-prompt-file --system-prompt-snapshot --teleport --tools \
+                 --worktree; do
             if [ "$a" = "$o" ]; then
                 skip_value=1
                 break
