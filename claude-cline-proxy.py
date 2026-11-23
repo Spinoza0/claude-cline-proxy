@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import json, os, sys, signal, random, asyncio, logging, uuid, time, base64, copy
 from pathlib import Path
-import aiohttp
-from aiohttp import web
 
 CLINE_DATA = Path.home() / ".cline" / "data"
 PROVIDERS_FILE = CLINE_DATA / "settings" / "providers.json"
@@ -39,6 +37,71 @@ LOG_LEVEL = logging.DEBUG if os.environ.get("CLAUDE_PROXY_LOG") else logging.INF
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s")
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 logger = logging.getLogger("claude-proxy")
+
+HELP_TEXT = """\
+claude-cline-proxy — Anthropic Messages API ↔ OpenAI Chat Completions proxy
+
+Translates requests from Claude Code into the format of the provider
+configured in Cline (api.cline.bot, OpenRouter, Ollama, any OpenAI-compatible
+endpoint) and translates the responses back, including streaming and tool calls.
+
+Usage:
+  claude-cline-proxy.py              Start the proxy (normally started by claude-cline)
+  claude-cline-proxy.py -h|--help    Show this help and exit
+
+The proxy takes no command-line options: everything is configured through
+Cline's own files and environment variables. It listens on 127.0.0.1 on a free
+port from {port_lo}-{port_hi}, prints CLINE_PROXY_PORT=<port> to stdout and writes
+the port to CLAUDE_PROXY_PORT_FILE (default /tmp/claude-proxy-port.txt).
+
+Endpoints:
+  POST /v1/messages    Anthropic Messages API (streaming and non-streaming)
+  GET  /health         Current provider/model as JSON, or 503 when config fails
+  GET  /               Same as /health
+
+Configuration:
+  ~/.cline/data/settings/providers.json   Providers, API keys, base URLs, models
+  ~/.cline/data/globalState.json          Active provider and per-mode model (IDE plugin)
+  ~/.cline/data/secrets.json              Cline OAuth tokens (refreshed automatically)
+
+Environment:
+  CLINE_OVERRIDE_PROVIDER      Provider id to use instead of the Cline selection
+  CLINE_OVERRIDE_MODEL         Model name to use instead of the Cline selection
+  CLINE_MAX_INPUT_TOKENS       Input-token budget for the context guard ({max_input})
+                               (0 disables truncation)
+  CLINE_MODEL_MAX_TOKENS       Hard context limit of the upstream model ({model_max})
+  CLINE_RETRY_REDUCTION_FACTOR Retry budget fraction for malformed tool calls ({retry})
+                               (0 disables retries)
+  CLAUDE_PROXY_LOG             Any value enables debug logging
+  CLAUDE_PROXY_PORT_FILE       Where to publish the chosen port
+  CLINE_CLIENT_VERSION         Client version sent to api.cline.bot
+  CLINE_CLIENT_TYPE            X-CLIENT-TYPE header sent to api.cline.bot
+
+Use the claude-cline launcher rather than running the proxy directly: it starts
+the proxy, picks the model and runs the claude CLI against it. From the launcher,
+this help is `claude-cline --proxy-help` (`claude-cline --help` is claude's own).
+"""
+
+# Handled before importing aiohttp so --help works even without that dependency.
+if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+    print(HELP_TEXT.format(
+        port_lo=PORT_RANGE[0],
+        port_hi=PORT_RANGE[1],
+        max_input=MAX_INPUT_TOKENS,
+        model_max=MODEL_MAX_TOKENS,
+        retry=RETRY_REDUCTION_FACTOR,
+    ))
+    sys.exit(0)
+
+if len(sys.argv) > 1:
+    sys.exit(f"Error: unknown argument '{sys.argv[1]}'. The proxy takes no options; "
+             "see --help. Configure it with environment variables or Cline's files.")
+
+try:
+    import aiohttp
+    from aiohttp import web
+except ImportError:
+    sys.exit("Error: the 'aiohttp' package is required. Install it with: pip3 install aiohttp")
 
 
 def decode_jwt_exp(token: str) -> int:

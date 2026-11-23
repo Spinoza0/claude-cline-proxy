@@ -290,6 +290,22 @@ This is required because `--tools default` (which the launcher adds for sessions
 
 To use the Cline provider as the default, run the subcommand once with `claude` and it is stored in the shared Claude Code config — no per-project setup needed.
 
+### Help
+
+`claude-cline --help` shows Claude Code's own help — that is the help you want for
+prompts and flags. The proxy's help (endpoints, config files, environment
+variables) has its own flag:
+
+```bash
+claude-cline --proxy-help
+```
+
+The proxy can also be queried directly, e.g. when diagnosing a launcher problem:
+
+```bash
+python3 "$(brew --prefix claude-cline-proxy)/libexec/claude-cline-proxy.py" --help
+```
+
 ## Files
 
 | File | Purpose |
