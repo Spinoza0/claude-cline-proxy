@@ -179,6 +179,18 @@ is_claude_subcommand() {
     return 1
 }
 
+# Telemetry, error reports and feature-flag (GrowthBook) fetches go to
+# api.anthropic.com, not to ANTHROPIC_BASE_URL, so pointing the proxy at a local
+# port does not silence them on its own. Set before any claude invocation below
+# so subcommands are covered too. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+# already implies DISABLE_TELEMETRY and DO_NOT_TRACK; opt back in with
+# CLINE_ENABLE_TELEMETRY=1 when the claude.ai plugin downloads or cloud
+# features are needed.
+if [ "${CLINE_ENABLE_TELEMETRY:-0}" != "1" ]; then
+    export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    export DISABLE_ERROR_REPORTING=1
+fi
+
 # Subcommands and --help/--version never reach the model, so hand them to claude
 # untouched instead of booting a proxy they would not use. This also keeps
 # `claude-cline mcp ...` working when the Cline session has expired.

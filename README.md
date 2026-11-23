@@ -110,6 +110,28 @@ CLAUDE_PROXY_LOG=1 claude-cline <your prompt>
 # logs written to /tmp/claude-proxy-<pid>.log
 ```
 
+### Telemetry
+
+Claude Code sends telemetry, error reports and feature-flag (GrowthBook) requests
+to `api.anthropic.com`. That traffic does **not** follow `ANTHROPIC_BASE_URL`, so
+routing model calls through the local proxy does not silence it — only an explicit
+environment variable does.
+
+`claude-cline` therefore disables it by default:
+
+| Variable | Effect |
+|----------|--------|
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Turns off all non-essential traffic: telemetry, feature-flag fetches, GitHub lookups, claude.ai plugin downloads, cloud/cross-machine features. Implies `DISABLE_TELEMETRY` and `DO_NOT_TRACK`. |
+| `DISABLE_ERROR_REPORTING=1` | Turns off crash/error reporting. |
+
+Set before any `claude` invocation, so `claude-cline mcp ...` and other subcommands
+are covered as well. To opt back in (for example when you need claude.ai plugin
+downloads or cloud features):
+
+```bash
+CLINE_ENABLE_TELEMETRY=1 claude-cline
+```
+
 ## Advanced flags
 
 | Flag | Description |
