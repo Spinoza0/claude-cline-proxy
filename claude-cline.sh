@@ -123,6 +123,32 @@ if [ -z "$PYTHON" ]; then
     exit 1
 fi
 
+# Locate proxy script: next to script (dev) or in Homebrew libexec (installed)
+PROXY_SCRIPT="$DIR/claude-cline-proxy.py"
+if [ -z "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
+    PROXY_SCRIPT="$DIR/../libexec/claude-cline-proxy.py"
+    BREW_PREFIX="$DIR/.."
+fi
+if [ -n "$BREW_PREFIX" ] && [ ! -f "$PROXY_SCRIPT" ]; then
+    PROXY_SCRIPT="$BREW_PREFIX/libexec/claude-cline-proxy.py"
+fi
+
+# Locate select script alongside proxy script
+SELECT_SCRIPT="$(dirname "$PROXY_SCRIPT")/claude-cline-select.py"
+
+# `--help` belongs to claude (handled earlier), so the proxy's own help gets a
+# distinct flag. Handled before the claude and token checks so it still answers
+# when claude is missing or the Cline session has expired.
+case "${1:-}" in
+    --proxy-help)
+        if [ ! -f "$PROXY_SCRIPT" ]; then
+            echo "Error: proxy script not found: $PROXY_SCRIPT" >&2
+            exit 1
+        fi
+        exec "$PYTHON" "$PROXY_SCRIPT" --help
+        ;;
+esac
+
 # Check claude CLI is available
 if ! command -v claude &>/dev/null; then
     echo "Error: claude CLI is not installed." >&2
